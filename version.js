@@ -1,1 +1,1 @@
-const APP_VERSION = 'AU78';
+const APP_VERSION = 'AU79';

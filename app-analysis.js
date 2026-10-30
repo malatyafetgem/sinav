@@ -3261,7 +3261,7 @@ function rAnl(){
         // 1-G: Az sınava giren öğrenci için uyarı vurgusu (toplam sınavın yarısından az)
         let examCntWarning = (totalExamCount > 0 && s.examCount < totalExamCount / 2);
         let examCntCell = examCntWarning
-          ? `<td class="rank-warning-cell" title="Toplam ${totalExamCount} sınavdan yalnızca ${s.examCount}'ine katıldı">! ${s.examCount}</td>`
+          ? `<td class="rank-warning-cell" title="Toplam ${totalExamCount} sınavdan yalnızca ${s.examCount} sınava katıldı">! ${s.examCount}</td>`
           : `<td>${s.examCount}</td>`;
         return `<tr class="${rCls}"><td>${idx+1}</td><td>${escapeHtml(s.name)}</td><td>${escapeHtml(s.cls)}</td>${subCells}<td><strong>${s.avgNet.toFixed(2)}</strong></td><td>${s.avgScore.toFixed(2)}</td><td>${escapeHtml(clsRankCell)}</td><td>${escapeHtml(schoolRankCell)}</td>${examCntCell}</tr>`;
       }).join('');
