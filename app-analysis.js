@@ -1701,7 +1701,7 @@ function rAnl(){
         // Kartlar
         let card1 = `<div class="col-12 col-md-3"><div class="sec-card">
           <div class="sec-icon"><i class="fas fa-book"></i></div>
-          <div class="sec-body"><div class="sec-label">${subjKey} Neti</div>
+          <div class="sec-body"><div class="sec-label">${escapeHtml(subjKey)} Neti</div>
           <div class="sec-value">${net!==null?net.toFixed(2):'—'}</div>
           <div class="sec-sub">${dog!==null?'D:'+dog+' Y:'+yan+(bos!==null?' B:'+bos:''):'Detay yok'}</div>
           </div></div></div>`;
@@ -1750,7 +1750,7 @@ function rAnl(){
 
 
         // Tek ders çubuk grafik (öğrenci vs sınıf vs kurum — sadece bu ders)
-        let singleBarHtml = `<div class="single-exam-chart-title chart-section-title"><i class="fas fa-chart-bar"></i>${subjKey} — Karşılaştırma</div>
+        let singleBarHtml = `<div class="single-exam-chart-title chart-section-title"><i class="fas fa-chart-bar"></i>${escapeHtml(subjKey)} — Karşılaştırma</div>
           <div class="chart-box chart-box-md avoid-break"><canvas id="cA"></canvas></div>`;
 
         let h = `<div class="d-flex justify-content-end mb-2 no-print"><button class="btn-print no-print" onclick="xPR('pS','Ogrenci_Ders',this)"><i class='fas fa-print me-1'></i>Yazdır</button></div>
@@ -2227,8 +2227,8 @@ function rAnl(){
       let _worstProg = _slopeArr.length > 0 && _slopeArr[_slopeArr.length-1].slope < 0 ? _slopeArr[_slopeArr.length-1] : null;
       if(_bestProg || _worstProg) {
         progressRegressionHtml = `<div class="row g-2 sec-cards-row class-info-cards class-progress-cards mb-3">
-          ${_bestProg ? `<div class="col-12 col-md-6 class-info-col"><div class="sec-card sec-pos h-100"><div class="sec-icon"><i class="fas fa-rocket"></i></div><div class="sec-body"><div class="sec-label">En Fazla İlerleme</div><div class="sec-value sec-value-compact">${_bestProg.name} <small>(${_bestProg.cls})</small></div><div class="sec-sub">Sınav başına +${_bestProg.slope.toFixed(2)} · ${_bestProg.cnt} sınav</div></div></div></div>` : ''}
-          ${_worstProg ? `<div class="col-12 col-md-6 class-info-col"><div class="sec-card sec-neg h-100"><div class="sec-icon"><i class="fas fa-level-down-alt"></i></div><div class="sec-body"><div class="sec-label">En Fazla Gerileme</div><div class="sec-value sec-value-compact">${_worstProg.name} <small>(${_worstProg.cls})</small></div><div class="sec-sub">Sınav başına ${_worstProg.slope.toFixed(2)} · ${_worstProg.cnt} sınav</div></div></div></div>` : ''}
+          ${_bestProg ? `<div class="col-12 col-md-6 class-info-col"><div class="sec-card sec-pos h-100"><div class="sec-icon"><i class="fas fa-rocket"></i></div><div class="sec-body"><div class="sec-label">En Fazla İlerleme</div><div class="sec-value sec-value-compact">${escapeHtml(_bestProg.name)} <small>(${escapeHtml(_bestProg.cls)})</small></div><div class="sec-sub">Sınav başına +${_bestProg.slope.toFixed(2)} · ${_bestProg.cnt} sınav</div></div></div></div>` : ''}
+          ${_worstProg ? `<div class="col-12 col-md-6 class-info-col"><div class="sec-card sec-neg h-100"><div class="sec-icon"><i class="fas fa-level-down-alt"></i></div><div class="sec-body"><div class="sec-label">En Fazla Gerileme</div><div class="sec-value sec-value-compact">${escapeHtml(_worstProg.name)} <small>(${escapeHtml(_worstProg.cls)})</small></div><div class="sec-sub">Sınav başına ${_worstProg.slope.toFixed(2)} · ${_worstProg.cnt} sınav</div></div></div></div>` : ''}
         </div>`;
       }
     }
