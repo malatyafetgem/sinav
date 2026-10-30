@@ -2107,6 +2107,9 @@ function onRiskFilterChange(rebuild){
   updateFilterSummary();
 }
 
+// Ders Analizi › "Tüm Dersler" seçeneğinin değeri (gerçek ders adlarıyla çakışmaz)
+const SUBJ_ALL_VALUE = '__ALL_SUBJECTS__';
+
 function uSub(){
   let aT=getEl('aType')?getEl('aType').value:'', t=getEl('aEx')?getEl('aEx').value:'';
   let subEl = getEl('aSub'); if(!subEl) return;
@@ -2164,8 +2167,9 @@ function uSub(){
     // _preferredAnalysisSub kullanmıyoruz; sadece mevcut subEl.value'yu (sıfırlanmış olabilir) koruyoruz.
     let prev = subEl.value || '';
     let opts = subjects.map(x=>optionHtml(x, toTitleCase(x))).join('');
+    let allOpt = subjects.length ? optionHtml(SUBJ_ALL_VALUE, 'Tüm Dersler', prev === SUBJ_ALL_VALUE) : '';
     let ph = optionHtml('', 'Ders Seç', !prev, true);
-    subEl.innerHTML = opts ? (ph + opts) : optionHtml('', 'Ders bulunamadı', true, true);
+    subEl.innerHTML = opts ? (ph + allOpt + opts) : optionHtml('', 'Ders bulunamadı', true, true);
     _applyAnalysisSubValue('', prev);
   } else {
     subEl.innerHTML=optionHtml('', 'Veri Seç', true, true);
