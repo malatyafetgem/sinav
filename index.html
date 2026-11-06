@@ -15,8 +15,9 @@
 <title>Sınav Analiz Sistemi</title>
 <script src="./version.js"></script>
 <script>
-window.SA_APP_VERSION = APP_VERSION;
-window.SA_CACHE_NAME = 'sinav-analizi-' + APP_VERSION;
+// version.js yüklenemezse (ağ hatası vb.) başlatma betiği çökmesin
+window.SA_APP_VERSION = (typeof APP_VERSION !== 'undefined') ? APP_VERSION : 'unknown';
+window.SA_CACHE_NAME = 'sinav-analizi-' + window.SA_APP_VERSION;
 window.SA_CACHE_READY = (async function(){
   try {
     const markerKey = 'sinavAnalizi.cacheReadyVersion';
@@ -54,12 +55,12 @@ window.SA_CACHE_READY = (async function(){
 <!-- Chart.js ve Datalabels Eklentisi -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-database-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-auth-compat.js"></script>
 
-<link rel="stylesheet" href="./style.css">
+<script>document.write('<link rel="stylesheet" href="./style.css?v=' + encodeURIComponent(window.SA_APP_VERSION) + '">');</script>
 </head>
 <body class="layout-fixed sidebar-expand-lg sidebar-mini" data-active-pane="anasayfa_genel">
 
@@ -76,16 +77,16 @@ window.SA_CACHE_READY = (async function(){
     </div>
     <div class="card-body p-4">
       <div class="mb-3">
-        <label>E-posta</label>
+        <label for="loginEmail">E-posta</label>
         <div class="input-group">
           <input type="email" id="loginEmail" class="form-control" placeholder="ornek@okul.com" autocomplete="email" onkeydown="if(event.key==='Enter') document.getElementById('loginPass').focus();">
           <span class="input-group-text"><i class="fas fa-envelope"></i></span>
         </div>
       </div>
       <div class="mb-3">
-        <label>Şifre</label>
+        <label for="loginPass">Şifre</label>
         <div class="input-group">
-          <input type="password" id="loginPass" class="form-control password-input" placeholder="••••••••" onkeydown="if(event.key==='Enter')login()">
+          <input type="password" id="loginPass" class="form-control password-input" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')login()">
           <span class="input-group-text password-toggle" role="button" tabindex="0" aria-label="Şifreyi göster/gizle" onclick="togglePassword()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();togglePassword();}">
             <i class="fas fa-eye" id="togglePassIcon"></i>
           </span>
@@ -203,22 +204,21 @@ window.SA_CACHE_READY = (async function(){
                 <i class="fas fa-sliders-h"></i>
               </button>
             </div>
-            <div id="filterSummary" class="filter-summary no-print" aria-live="polite"></div>
             <div id="anlFilterBody" class="collapse show">
               <div class="card-body">
                 <div class="row" id="anlFilterRow">
-            <div class="col-sm-6 col-md-4 col-lg-2"><div class="mb-3"><label>Analiz Türü</label><select id="aType" class="form-select" onchange="reqUI()"><option value="student">Öğrenci Analizi</option><option value="class">Sınıf Analizi</option><option value="subject">Ders Analizi</option><option value="examdetail">Sınav Analizi</option><option value="risk">Risk Analizi</option></select></div></div>
-            <div class="col-sm-6 col-md-4 col-lg-3" id="gStu"><div class="mb-3"><label>Öğrenci Seçin</label><div id="anlStuSearchWrapper"><div class="input-group"><input type="text" id="anlStuInp" class="form-control" placeholder="Ad, soyad veya numara..." onkeyup="anlStuDoSearch()" autocomplete="off"><button class="btn btn-outline-secondary btn-search-clear" onclick="anlStuClear()"><i class="fas fa-times"></i></button></div><div id="anlStuRes" role="listbox"></div></div><div id="anlStuBadge"></div></div></div>
-            <div class="col-sm-6 col-md-4 col-lg-2" id="gLvl" style="display:none;"><div class="mb-3"><label>Sınıf Seviyesi</label><select id="aLvl" class="form-select" onchange="onLvlChange()"><option value="" disabled selected>Sınıf Seviyesi Seç</option></select></div></div>
-            <div class="col-sm-6 col-md-4 col-lg-2" id="gBr" style="display:none;"><div class="mb-3"><label>Şube</label><select id="aBr" class="form-select" onchange="onBrChange()"><option value="" disabled selected>Şube Seç</option></select></div></div>
-            <div class="col-sm-6 col-md-4 col-lg-2" id="gEx"><div class="mb-3"><label>Sınav Türü</label><div class="aex-wrap"><select id="aEx" class="form-select" onchange="onExTypeChange()"><option value="" disabled selected>Sınav Türü Seçiniz</option></select><span id="aExBadge" class="aex-badge" aria-hidden="true"></span></div></div></div>
-            <div class="col-sm-6 col-md-4 col-lg-2" id="gExDate" style="display:none;"><div class="mb-3"><label>Sınav Seç</label><select id="aExDate" class="form-select" onchange="onExDateStudentChange()"><option value="" disabled selected>Sınav Seçiniz</option><option value="__ALL__">Tüm Sınavlar</option></select></div></div>
-            <div class="col-sm-6 col-md-4 col-lg-2" id="gDate" style="display:none;"><div class="mb-3"><label id="lblDate">Sınav Seç</label><select id="aDate" class="form-select" onchange="onDateChange()"><option value="" disabled selected>Sınav Seç</option></select></div></div>
-            <div class="col-sm-6 col-md-4 col-lg-2" id="gSub" style="display:none;"><div class="mb-3"><label id="lblSub">Veri</label><select id="aSub" class="form-select" onchange="handleSubChange()"></select></div></div>
-            <div class="col-sm-6 col-md-4 col-lg-2" id="gRiskGrade" style="display:none;"><div class="mb-3"><label>Sınıf Seviyesi</label><select id="riskGradeFilter" class="form-select" onchange="onRiskFilterChange(true)"><option value="">Tüm Sınıflar</option></select></div></div>
-            <div class="col-sm-6 col-md-4 col-lg-2" id="gRiskBranch" style="display:none;"><div class="mb-3"><label>Şube</label><select id="riskBranchFilter" class="form-select" onchange="onRiskFilterChange(false)"><option value="">Tüm Şubeler</option></select></div></div>
-            <div class="col-sm-6 col-md-4 col-lg-2" id="gRiskExType" style="display:none;"><div class="mb-3"><label>Sınav Türü</label><select id="riskExTypeFilter" class="form-select" onchange="onRiskFilterChange(false)"><option value="">Tüm Sınav Türleri</option></select></div></div>
-            <div class="col-sm-6 col-md-4 col-lg-2" id="gRiskLevel" style="display:none;"><div class="mb-3"><label>Risk Türü</label><select id="riskLevelFilter" class="form-select" onchange="onRiskFilterChange(false)"><option value="">Tüm Riskler</option><option value="high">Yüksek Risk</option><option value="med">Orta Risk</option><option value="low">Düşük Risk</option></select></div></div>
+            <div class="col-sm-6 col-md-4 col-lg-2"><div class="mb-3"><label for="aType">Analiz Türü</label><select id="aType" class="form-select" onchange="reqUI()"><option value="student">Öğrenci Analizi</option><option value="class">Sınıf Analizi</option><option value="subject">Ders Analizi</option><option value="examdetail">Sınav Analizi</option><option value="risk">Risk Analizi</option></select></div></div>
+            <div class="col-sm-6 col-md-4 col-lg-3" id="gStu"><div class="mb-3"><label for="anlStuInp">Öğrenci Seçin</label><div id="anlStuSearchWrapper"><div class="input-group"><input type="text" id="anlStuInp" class="form-control" placeholder="Ad, soyad veya numara..." onkeyup="anlStuDoSearch()" autocomplete="off"><button class="btn btn-outline-secondary btn-search-clear" onclick="anlStuClear()"><i class="fas fa-times"></i></button></div><div id="anlStuRes" role="listbox"></div></div><div id="anlStuBadge"></div></div></div>
+            <div class="col-sm-6 col-md-4 col-lg-2" id="gLvl" style="display:none;"><div class="mb-3"><label for="aLvl">Sınıf Seviyesi</label><select id="aLvl" class="form-select" onchange="onLvlChange()"><option value="" disabled selected>Sınıf Seviyesi Seç</option></select></div></div>
+            <div class="col-sm-6 col-md-4 col-lg-2" id="gBr" style="display:none;"><div class="mb-3"><label for="aBr">Şube</label><select id="aBr" class="form-select" onchange="onBrChange()"><option value="" disabled selected>Şube Seç</option></select></div></div>
+            <div class="col-sm-6 col-md-4 col-lg-2" id="gEx"><div class="mb-3"><label for="aEx">Sınav Türü</label><div class="aex-wrap"><select id="aEx" class="form-select" onchange="onExTypeChange()"><option value="" disabled selected>Sınav Türü Seçiniz</option></select><span id="aExBadge" class="aex-badge" aria-hidden="true"></span></div></div></div>
+            <div class="col-sm-6 col-md-4 col-lg-2" id="gExDate" style="display:none;"><div class="mb-3"><label for="aExDate">Sınav Seç</label><select id="aExDate" class="form-select" onchange="onExDateStudentChange()"><option value="" disabled selected>Sınav Seçiniz</option><option value="__ALL__">Tüm Sınavlar</option></select></div></div>
+            <div class="col-sm-6 col-md-4 col-lg-2" id="gDate" style="display:none;"><div class="mb-3"><label id="lblDate" for="aDate">Sınav Seç</label><select id="aDate" class="form-select" onchange="onDateChange()"><option value="" disabled selected>Sınav Seç</option></select></div></div>
+            <div class="col-sm-6 col-md-4 col-lg-2" id="gSub" style="display:none;"><div class="mb-3"><label id="lblSub" for="aSub">Veri</label><select id="aSub" class="form-select" onchange="handleSubChange()"></select></div></div>
+            <div class="col-sm-6 col-md-4 col-lg-2" id="gRiskGrade" style="display:none;"><div class="mb-3"><label for="riskGradeFilter">Sınıf Seviyesi</label><select id="riskGradeFilter" class="form-select" onchange="onRiskFilterChange(true)"><option value="">Tüm Sınıflar</option></select></div></div>
+            <div class="col-sm-6 col-md-4 col-lg-2" id="gRiskBranch" style="display:none;"><div class="mb-3"><label for="riskBranchFilter">Şube</label><select id="riskBranchFilter" class="form-select" onchange="onRiskFilterChange(false)"><option value="">Tüm Şubeler</option></select></div></div>
+            <div class="col-sm-6 col-md-4 col-lg-2" id="gRiskExType" style="display:none;"><div class="mb-3"><label for="riskExTypeFilter">Sınav Türü</label><select id="riskExTypeFilter" class="form-select" onchange="onRiskFilterChange(false)"><option value="">Tüm Sınav Türleri</option></select></div></div>
+            <div class="col-sm-6 col-md-4 col-lg-2" id="gRiskLevel" style="display:none;"><div class="mb-3"><label for="riskLevelFilter">Risk Türü</label><select id="riskLevelFilter" class="form-select" onchange="onRiskFilterChange(false)"><option value="">Tüm Riskler</option><option value="high">Yüksek Risk</option><option value="med">Orta Risk</option><option value="low">Düşük Risk</option></select></div></div>
                 </div>
               </div>
             </div>
@@ -249,10 +249,10 @@ window.SA_CACHE_READY = (async function(){
           <div class="card sa-panel sa-panel-primary"><div class="card-header d-flex align-items-center justify-content-between"><h3 class="card-title"><i class="fas fa-file-alt me-2"></i>Toplu Rapor & Liste</h3><button type="button" class="btn btn-sm btn-outline-secondary ms-auto filter-reset-header" onclick="resetRapor()" title="Filtreleri sıfırla" aria-label="Filtreleri sıfırla"><i class="fas fa-rotate-left"></i><span class="d-none d-md-inline ms-1">Sıfırla</span></button></div>
             <div class="card-body">
               <div class="row">
-                <div class="col-sm-6 col-md-3"><div class="mb-3"><label>Sınıf Seviyesi</label><select id="rLvl" class="form-select" onchange="raporFillBranches()"><option value="">Seçiniz</option></select></div></div>
-                <div class="col-sm-6 col-md-2"><div class="mb-3"><label>Şube</label><select id="rBr" class="form-select" onchange="raporFillExamTypes()"><option value="">Tümü</option></select></div></div>
-                <div class="col-sm-6 col-md-3"><div class="mb-3"><label>Sınav Türü</label><select id="rExType" class="form-select" onchange="raporExamTypeChanged()"><option value="" disabled selected>Sınav Seçiniz</option></select></div></div>
-                <div class="col-sm-6 col-md-3"><div class="mb-3"><label>Rapor Türü</label><select id="rReportType" class="form-select" onchange="generateRapor()"><option value="" disabled selected>Rapor Türü Seçiniz</option><option value="Karne">Karne (Öğrenci Bazlı)</option><option value="Liste">Liste (Toplu Netler)</option></select></div></div>
+                <div class="col-sm-6 col-md-3"><div class="mb-3"><label for="rLvl">Sınıf Seviyesi</label><select id="rLvl" class="form-select" onchange="raporFillBranches()"><option value="">Seçiniz</option></select></div></div>
+                <div class="col-sm-6 col-md-2"><div class="mb-3"><label for="rBr">Şube</label><select id="rBr" class="form-select" onchange="raporFillExamTypes()"><option value="">Tümü</option></select></div></div>
+                <div class="col-sm-6 col-md-3"><div class="mb-3"><label for="rExType">Sınav Türü</label><select id="rExType" class="form-select" onchange="raporExamTypeChanged()"><option value="" disabled selected>Sınav Seçiniz</option></select></div></div>
+                <div class="col-sm-6 col-md-3"><div class="mb-3"><label for="rReportType">Rapor Türü</label><select id="rReportType" class="form-select" onchange="generateRapor()"><option value="" disabled selected>Rapor Türü Seçiniz</option><option value="Karne">Karne (Öğrenci Bazlı)</option><option value="Liste">Liste (Toplu Netler)</option></select></div></div>
               </div>
             </div>
           </div>
@@ -447,25 +447,18 @@ window.SA_CACHE_READY = (async function(){
 (async function loadAppScripts(){
   const version = window.SA_APP_VERSION;
   const scripts = ['app-core.js','app-ui.js','app-analysis.js','app-settings.js'];
-  const refreshLocalStyle = () => {
-    const current = document.querySelector('link[href*="style.css"]');
-    if (!current) return;
-    const fresh = current.cloneNode();
-    fresh.href = `./style.css?v=${version}&t=${Date.now()}`;
-    fresh.onload = () => current.remove();
-    document.head.appendChild(fresh);
-  };
+  // Stil dosyası <head> içinde sürüm numarasıyla bir kez yüklenir (eskiden ikinci bir kopya zaman damgasıyla yeniden indiriliyordu).
   const loadScript = src => new Promise((resolve, reject) => {
     const s = document.createElement('script');
     s.src = `./${src}?v=${version}`;
+    s.async = false; // dosyalar paralel indirilir ama yazıldıkları sırayla çalışır
     s.onload = resolve;
     s.onerror = () => reject(new Error(src + ' yüklenemedi'));
     document.body.appendChild(s);
   });
   try {
     if (window.SA_CACHE_READY) await window.SA_CACHE_READY;
-    refreshLocalStyle();
-    for (const src of scripts) await loadScript(src);
+    await Promise.all(scripts.map(loadScript));
   } catch (err) {
     console.error('Uygulama başlatılamadı:', err);
     const loader = document.getElementById('loader');

@@ -321,15 +321,20 @@ function _tblToWsSafe(tbl){
     });
     aoa.push(row);
   });
-  // aoa_to_sheet ile oluştur; tüm değerler string olarak gelir, raw:false ile parse etme
+  // aoa_to_sheet ile oluştur; tarih benzeri metinler otomatik tarihe çevrilmesin diye önce hepsi string yapılır,
+  // ardından yalnızca açıkça sayı olan değerler sayıya çevrilir
   let ws=XLSX.utils.aoa_to_sheet(aoa, {dense:false});
-  // Tüm hücreleri string tipine zorla (sayısal görünen değerler dahil)
   let range=XLSX.utils.decode_range(ws['!ref']||'A1:A1');
   for(let R=range.s.r;R<=range.e.r;R++){
     for(let C=range.s.c;C<=range.e.c;C++){
       let ref=XLSX.utils.encode_cell({r:R,c:C});
       let cell=ws[ref];
       if(cell && cell.t!=='s'){ cell.t='s'; cell.v=String(cell.v); }
+      // Sayı gibi görünen değerler sayı olarak yazılır (toplanabilir/sıralanabilir); baştaki sıfırlı (007) ve çok uzun değerler metin kalır
+      if(cell && cell.t==='s' && /^-?(0|[1-9]\d{0,14})(\.\d+)?$/.test(cell.v)){
+        let dec=(cell.v.split('.')[1]||''); cell.t='n'; cell.v=Number(cell.v); delete cell.w;
+        if(dec) cell.z='0.'+'0'.repeat(dec.length);
+      }
     }
   }
   // Sütun genişliklerini hesapla
@@ -347,6 +352,7 @@ function _tblToWsSafe(tbl){
 }
 
 function xXL(id,fn){
+  if(!xlsxReady()) return;
   let tbl=getEl(id), wb=XLSX.utils.book_new();
   let ws=_tblToWsSafe(tbl);
   XLSX.utils.book_append_sheet(wb,ws,'Rapor');
@@ -354,6 +360,7 @@ function xXL(id,fn){
 }
 
 function xXLMul(cId,fn){
+  if(!xlsxReady()) return;
   let wb=XLSX.utils.book_new(), ts=getEl(cId).getElementsByTagName('table');
   for(let i=0;i<ts.length;i++){
     let ws=_tblToWsSafe(ts[i]);
@@ -1269,6 +1276,15 @@ function uStat(){
   const entries = Object.entries(u).sort((a,b)=> a[0].localeCompare(b[0],'tr'));
   let h = '';
 
+  if(entries.length === 0 && EXAM_META_STATE === 'loading'){
+    // Veri henüz gelmedi: yanlış "veri yok" uyarısı yerine nötr yer tutucu (ilk ~0,5 sn görünmez, hızlı yüklemede hiç görünmez)
+    g.innerHTML = '<div class="col-12"><div class="stat-loading" role="status" aria-live="polite"><span class="spinner-border spinner-border-sm" aria-hidden="true"></span><span>Sistem özeti yükleniyor…</span></div></div>';
+    return;
+  }
+  if(entries.length === 0 && EXAM_META_STATE === 'error'){
+    g.innerHTML = '<div class="col-12"><div class="stat-empty-state"><i class="fas fa-exclamation-triangle stat-empty-icon"></i><span class="stat-empty-text">Sınav bilgileri okunamadı. Sayfayı yenileyip tekrar deneyin.</span></div></div>';
+    return;
+  }
   if(entries.length === 0){
     // Boş durum kartı: admin ve normal kullanıcı için ayrı metin
     const isAdm = document.body.classList.contains('is-admin');
@@ -1378,13 +1394,20 @@ function _hasScoreData(e){
   return e && e.studentNo && !e.abs;
 }
 
+// Filtre zinciri her değişimde aynı süzmeleri tekrar tekrar çağırdığından sonuçlar DB.e dizisi değişene kadar önbelleğe alınır
+// (DB.e her yeniden kurulumda yeni dizi olarak atanır; tüm çağıranlar sonucu yalnızca okur — map/filter/forEach).
+let _rrCache = { src: null, map: new Map() };
 function _resultRows(filters = {}){
   let grade = filters.grade || '';
   let branch = filters.branch === '__ALL__' ? '' : (filters.branch || '');
   let examType = filters.examType || '';
   let date = filters.date === '__ALL__' ? '' : (filters.date || '');
   let studentNo = filters.studentNo || '';
-  return (DB.e || []).filter(e => {
+  if(_rrCache.src !== DB.e) _rrCache = { src: DB.e, map: new Map() };
+  const _rrKey = [grade, branch, examType, date, studentNo].join('\u0001');
+  const _rrHit = _rrCache.map.get(_rrKey);
+  if(_rrHit) return _rrHit;
+  const _rrRows = (DB.e || []).filter(e => {
     if(!_hasScoreData(e)) return false;
     if(studentNo && e.studentNo !== studentNo) return false;
     if(examType && e.examType !== examType) return false;
@@ -1394,6 +1417,8 @@ function _resultRows(filters = {}){
     if(branch && parts.branch !== branch) return false;
     return true;
   });
+  _rrCache.map.set(_rrKey, _rrRows);
+  return _rrRows;
 }
 
 function _resultGrades(filters = {}){
@@ -1435,13 +1460,6 @@ function _setSelectLock(id, locked, title){
     el.options[0].text = msg;
     if(el.value === '') el.options[0].selected = true;
   }
-}
-
-function _selectHasConcreteValue(id){
-  let el = getEl(id);
-  if(!el || el.selectedIndex < 0) return false;
-  let opt = el.options[el.selectedIndex];
-  return !!(opt && !opt.disabled && el.value !== '');
 }
 
 function uBranches(){
@@ -1500,13 +1518,21 @@ function uExamTypes(){
 
 // ---- analysis filter memory ----
 const ANALYSIS_SUB_STORAGE_KEY = 'sinavAnalizi.analysisSubMemory.v1';
-const ANALYSIS_SUB_MEMORY = (() => {
-  try { return JSON.parse(localStorage.getItem(ANALYSIS_SUB_STORAGE_KEY) || '{}') || {}; }
-  catch(e) { return {}; }
-})();
+const ANALYSIS_SUB_MEMORY = {};
+let _asmLoadedFor = null;
+
+// Bellek kullanıcıya özeldir; oturum açıldıktan sonra ilk kullanımda (ya da kullanıcı değişirse) yeniden yüklenir
+function _ensureAnalysisSubMemory(){
+  const k = userStorageKey(ANALYSIS_SUB_STORAGE_KEY);
+  if(!k || _asmLoadedFor === k) return;
+  _asmLoadedFor = k;
+  Object.keys(ANALYSIS_SUB_MEMORY).forEach(x => { delete ANALYSIS_SUB_MEMORY[x]; });
+  try { Object.assign(ANALYSIS_SUB_MEMORY, JSON.parse(userStorageGet(ANALYSIS_SUB_STORAGE_KEY) || '{}') || {}); } catch(e){}
+}
 
 function _saveAnalysisSubMemory(){
-  try { localStorage.setItem(ANALYSIS_SUB_STORAGE_KEY, JSON.stringify(ANALYSIS_SUB_MEMORY)); } catch(e){}
+  _ensureAnalysisSubMemory();
+  userStorageSet(ANALYSIS_SUB_STORAGE_KEY, JSON.stringify(ANALYSIS_SUB_MEMORY));
 }
 
 function _analysisSubKeys(){
@@ -1534,6 +1560,7 @@ function _rememberAnalysisSub(value){
   let el = getEl('aSub');
   let val = value !== undefined ? value : (el ? el.value : '');
   if(!val) return;
+  _ensureAnalysisSubMemory();
   let keys = _analysisSubKeys();
   if(keys.length) ANALYSIS_SUB_MEMORY[keys[0]] = val;
   _saveAnalysisSubMemory();
@@ -1543,6 +1570,7 @@ function _preferredAnalysisSub(defaultVal){
   let el = getEl('aSub');
   let cur = el ? el.value : '';
   if(cur) return cur;
+  _ensureAnalysisSubMemory();
   for(let k of _analysisSubKeys()){
     if(ANALYSIS_SUB_MEMORY[k]) return ANALYSIS_SUB_MEMORY[k];
   }
@@ -1563,21 +1591,13 @@ function _applyAnalysisSubValue(defaultVal, preferredOverride){
   return el.value;
 }
 
-function _selectedOptionText(id){
-  let el = getEl(id);
-  if(!el || el.selectedIndex < 0) return '';
-  let opt = el.options[el.selectedIndex];
-  if(!opt || opt.disabled) return '';
-  return (opt.textContent || '').trim();
-}
-
 const CARD_EXPLANATIONS = {
   trend_direction: {
     title: 'Genel Yön (Trend)',
     badge: 'Trend',
     summary: 'Seçilen verinin genel gidiş yönünü gösterir: yükseliyor, düşüyor, sabit ya da dalgalı.',
-    interpretation: 'En az 3 sınav olunca yorumlanmalıdır. R² yüksekse yön daha güvenilir okunur.',
-    caution: 'Az sınavda veya çok dalgalı sonuçlarda kesin karar değil, izleme ipucu olarak değerlendirilmelidir.'
+    interpretation: 'Yön, eğimin istatistiksel anlamlılığına göre verilir (t-testi, en az 4 sınav ve p≤0.10). Anlamlı değilse "Belirgin trend yok" yazılır; yön yorumu yapılmaz.',
+    caution: 'Az sınavda veya çok dalgalı sonuçlarda kesin karar değil, izleme ipucu olarak değerlendirilmelidir. Öğrenci trendi sınav zorluğundan; sınıf ve ders ortalaması trendi ayrıca her sınavdaki farklı öğrenci kümesinden etkilenebilir.'
   },
   total_change: {
     title: 'Toplam Değişim',
@@ -1597,8 +1617,8 @@ const CARD_EXPLANATIONS = {
     title: 'Trend Güvenilirliği (R²)',
     badge: 'Güvenilirlik',
     summary: 'Sonuçların düzenli bir artış veya düşüş çizgisine ne kadar uyduğunu gösterir.',
-    interpretation: 'Değer yükseldikçe trend daha güvenilir okunur; düşük değer dalgalanmayı gösterir.',
-    caution: 'R² düşükse yön oku kesin karar değil, öğretmen için izleme sinyalidir.'
+    interpretation: 'R², trendin sonuçlardaki değişimin ne kadarını açıkladığını gösterir (1 = tamamı). Güvenilirlik için p-değerine bakılır: p≤0.10 ve en az 4 sınav gerekir.',
+    caution: 'R² tahmin doğruluğu değildir; açıklanan varyans oranıdır. R² düşükse yön oku kesin karar değil, öğretmen için izleme sinyalidir.'
   },
   current_performance: {
     title: 'Güncel Performans (EWMA)',
@@ -1612,14 +1632,14 @@ const CARD_EXPLANATIONS = {
     badge: 'Dalgalanma',
     summary: 'Gerçek sonuçların beklenen trend çizgisinden ortalama ne kadar saptığını gösterir.',
     interpretation: 'Düşük değer daha düzenli, yüksek değer daha dalgalı performans anlamına gelir.',
-    caution: 'Sürpriz payı yüksekse trend yorumları daha temkinli yapılmalıdır.'
+    caution: 'Sürpriz payı yüksekse trend yorumları daha temkinli yapılmalıdır. Etiket, RMSE\'nin aynı sınavlardaki öğrenciler arası standart sapmaya oranına göre verilir; eşikler sezgiseldir, kesin bilimsel sınır değildir.'
   },
   position_z: {
     title: 'Ortalamaya Göre Konum',
     badge: 'Karşılaştırma',
     summary: 'Öğrencinin sınıf veya kurum ortalamasına göre yerini gösterir.',
     interpretation: '0 ortalama düzeyidir; + değer ortalamanın üstünü, - değer ortalamanın altını anlatır. Standart sapma, gruptaki tipik uzaklığı ifade eder.',
-    caution: 'Grup küçükse veya sonuçlar birbirine çok yakınsa bu gösterge tek başına öğrenci etiketi olarak kullanılmamalıdır.'
+    caution: 'Grup küçükse veya sonuçlar birbirine çok yakınsa bu gösterge tek başına öğrenci etiketi olarak kullanılmamalıdır. Not: risk analizinde standart sapma grubun tamamı üzerinden (n), diğer ekranlarda örneklem olarak (n−1) hesaplanır; küçük gruplarda değerler biraz farklı çıkabilir.'
   },
   rank_position: {
     title: 'Sıralama Konumu',
@@ -1647,7 +1667,7 @@ const CARD_EXPLANATIONS = {
     badge: 'Dağılım',
     summary: 'Öğrenciler birbirine yakın mı, yoksa seviye farkı fazla mı, bunu gösterir.',
     interpretation: 'Değer büyüdükçe grup daha heterojen; değer küçüldükçe daha homojen kabul edilir.',
-    caution: 'Ortalama çok düşükse CV olduğundan yüksek görünebilir; öğrenci sayısıyla birlikte okunmalıdır.'
+    caution: 'Ortalama çok düşükse CV olduğundan yüksek görünebilir; öğrenci sayısıyla birlikte okunmalıdır. Sınıflandırma eşikleri (%10 / %20 / %35) sezgiseldir, kesin bilimsel sınır değildir.'
   },
   median: {
     title: 'Medyan Net',
@@ -1664,18 +1684,18 @@ const CARD_EXPLANATIONS = {
     caution: 'IQR uç değerleri dışarıda bırakır; en yüksek ve en düşük öğrencileri tek başına anlatmaz.'
   },
   effect_size: {
-    title: "Etki Büyüklüğü (Cohen's d)",
+    title: "Etki Büyüklüğü (Hedges g)",
     badge: 'Karşılaştırma',
-    summary: 'Şubeler ya da gruplar arasındaki farkın gerçekten güçlü olup olmadığını gösterir.',
+    summary: 'Şubeler ya da gruplar arasındaki farkın gerçekten güçlü olup olmadığını gösterir (küçük örneklem düzeltmeli Cohen d, yani Hedges g).',
     interpretation: 'Yaklaşık 0.20 küçük, 0.50 orta, 0.80 ve üzeri büyük fark olarak okunabilir.',
-    caution: 'Ortalama farkı tek başına yeterli değildir; grupların kendi içindeki dağılımı da dikkate alınır.'
+    caution: 'Ortalama farkı tek başına yeterli değildir; grupların kendi içindeki dağılımı da dikkate alınır. En yüksek ortalamalı grup veriden seçildiği için fark olduğundan büyük görünebilir (seçim etkisi).'
   },
   group_difference: {
     title: 'Gruplar Arası Fark',
     badge: 'Karşılaştırma',
     summary: 'En yüksek ortalamalı grup ile en düşük ortalamalı grup arasındaki ham net/puan farkını gösterir.',
     interpretation: 'Fark büyüdükçe gruplar arasındaki seviye ayrımı artar.',
-    caution: 'Ham fark dağılımı hesaba katmaz; varsa Cohen d ile birlikte yorumlanmalıdır.'
+    caution: 'Ham fark dağılımı hesaba katmaz; varsa Hedges g (etki büyüklüğü) ile birlikte yorumlanmalıdır.'
   },
   branch_institution_delta: {
     title: 'Şube - Kurum Farkı',
@@ -2052,12 +2072,6 @@ window.decorateCardExplanations = decorateCardExplanations;
 window.openCardExplanation = openCardExplanation;
 window.closeCardExplanation = closeCardExplanation;
 
-function updateFilterSummary(){
-  let box = getEl('filterSummary'); if(!box) return;
-  box.hidden = true;
-  box.innerHTML = '';
-}
-
 function resetAnalysisFilters(){
   let currentType = getEl('aType') ? (getEl('aType').value || 'student') : 'student';
   const resetControls = () => {
@@ -2093,18 +2107,15 @@ function resetAnalysisFilters(){
   }
   applyExamColorToFilters();
   _updateAnalysisFilterLocks();
-  updateFilterSummary();
   if(currentType === 'risk' && typeof renderRiskPanel === 'function') renderRiskPanel();
   reqAnl();
 }
 
-function onRiskFilterChange(rebuild){
-  if(rebuild) _populateRiskFilterDropdowns();
-  else _populateRiskFilterDropdowns();
+function onRiskFilterChange(_rebuild){ // parametre eski çağrılarla uyumluluk için korunur (iki durumda da aynı işlem yapılıyordu)
+  _populateRiskFilterDropdowns();
   _updateAnalysisFilterLocks();
   renderRiskPanel();
   applyExamColorToFilters();
-  updateFilterSummary();
 }
 
 // Ders Analizi › "Tüm Dersler" seçeneğinin değeri (gerçek ders adlarıyla çakışmaz)
@@ -2460,7 +2471,6 @@ function uUI(){
   }
   _updateAnalysisFilterLocks();
   applyExamColorToFilters();
-  updateFilterSummary();
 }
 
 function _populateRiskFilterDropdowns() {

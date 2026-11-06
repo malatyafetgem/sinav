@@ -64,9 +64,10 @@ function _statQuartiles(arr){
 }
 
 /**
- * Cohen's d — iki bağımsız grup arasındaki etki büyüklüğü.
- * Pooled std kullanılır. d ≈ 0.2 küçük, 0.5 orta, ≥0.8 büyük etki.
- * Eğitim verisinde gruplar arası farkın "anlamlılık" göstergesi olarak kullanılır.
+ * Etki büyüklüğü — iki bağımsız grup arasındaki standartlaştırılmış ortalama fark.
+ * Birleşik (pooled) standart sapma kullanılır ve küçük örneklem yanlılığı Hedges düzeltmesiyle giderilir (Hedges g = d · J,
+ * J = 1 − 3 / (4·(nA+nB−2) − 1)). Büyük gruplarda g ≈ Cohen d'dir. Yorum: ≈0.2 küçük, 0.5 orta, ≥0.8 büyük etki.
+ * (Fonksiyon adı geriye dönük uyumluluk için _statCohenD olarak korunmuştur.)
  */
 function _statCohenD(a, b){
   if(!a || !b || a.length < 2 || b.length < 2) return null;
@@ -76,11 +77,12 @@ function _statCohenD(a, b){
   let nA = a.length, nB = b.length;
   let pooled = Math.sqrt(((nA-1)*sA*sA + (nB-1)*sB*sB) / (nA + nB - 2));
   if(pooled === 0) return null;
-  return (mA - mB) / pooled;
+  const J = 1 - 3 / (4 * (nA + nB - 2) - 1);
+  return ((mA - mB) / pooled) * J;
 }
 
 /**
- * Cohen's d için sözel etiket (TR).
+ * Etki büyüklüğü (Hedges g / Cohen d) için sözel etiket (TR).
  */
 function _cohenLabel(d){
   if(d === null || d === undefined || isNaN(d)) return '—';
@@ -103,22 +105,126 @@ function _statCV(arr){
   return (sd / Math.abs(m)) * 100;
 }
 
-function _consistencyLabel(cv){
-  if(cv === null) return '—';
-  if(cv < 10)  return 'Çok tutarlı';
-  if(cv < 20)  return 'Tutarlı';
-  if(cv < 35)  return 'Dalgalı';
-  return 'Çok dalgalı';
-}
 // Sürpriz Payı etiketi — RMSE (regresyon kalıntılarının standart hatası) bazlı.
 // RMSE düşükse trend tahmini güvenilir → sürpriz az; RMSE yüksekse sınavlar trendden
-// büyük sapma gösteriyor → sürpriz yüksek. Eşikler net cinsinden tipik dağılıma göredir.
-function _surpriseLabel(rmse){
+// büyük sapma gösteriyor → sürpriz yüksek.
+// scaleSd verilirse etiket ölçekten bağımsızdır: RMSE, aynı sınavlardaki öğrenciler arası (sınav içi) standart sapmaya oranlanır
+// (soru sayısı/puan ölçeği farklı sınavlarda aynı eşik anlamlı kalır). Eşikler sezgiseldir, kesin bilimsel sınır değildir.
+function _surpriseLabel(rmse, scaleSd){
   if(rmse === null || rmse === undefined || isNaN(rmse)) return '—';
+  if(scaleSd && scaleSd > 0){
+    const ratio = rmse / scaleSd;
+    if(ratio < 0.25) return 'Çok Düşük';
+    if(ratio < 0.50) return 'Düşük';
+    if(ratio < 0.75) return 'Orta';
+    return 'Yüksek';
+  }
   if(rmse < 4)   return 'Çok Düşük';
   if(rmse < 8)   return 'Düşük';
   if(rmse < 14)  return 'Orta';
   return 'Yüksek';
+}
+// Katılım oranı: (uygun öğrenci × sınav) çiftleri üzerinden. Uygun öğrenciler seçilen seviye/şubeye göre, sınavlar EXAM_META'dan
+// (tür; isteğe bağlı tarih ve ders; her sınavın ilgili seviyeleri) gelir. "Katıldı" = o sınavda devamsız olmayan kaydı olması
+// (ders verilmişse o dersin neti de olmalı). Daha önce analiz ekranlarında dört yerde kopyalanmıştı.
+// looseClass: genel özetteki eski davranış (sınıf adı kalıba uymayan öğrenciler seviye/şube filtresinde elenmez).
+function _calcParticipation({ examType, lvl = '', br = '', date = '', subject = '', looseClass = false }){
+  const full = /^(\d+)([a-zA-ZğüşıöçĞÜŞİÖÇ]+)$/;
+  const eligible = DB.s.filter(s => {
+    if(looseClass){
+      const m = s.class.match(/^(\d+)/);
+      if(lvl && m && m[1] !== lvl) return false;
+      if(br){ const mm = s.class.match(full); if(mm && mm[2].toLocaleUpperCase('tr-TR') !== br) return false; }
+      return true;
+    }
+    const m = s.class.match(full);
+    if(!m) return false;
+    if(lvl && m[1] !== lvl) return false;
+    if(br && m[2].toLocaleUpperCase('tr-TR') !== br) return false;
+    return true;
+  });
+  const subjLower = subject ? subject.toLocaleLowerCase('tr-TR') : '';
+  const subjTitle = subject ? toTitleCase(subject) : '';
+  const examGradeMap = {};
+  Object.values(EXAM_META).forEach(m => {
+    if(m.examType !== examType) return;
+    if(date && m.date !== date) return;
+    if(subject && (!m.subjects || !m.subjects.map(x => x.toLocaleLowerCase('tr-TR')).includes(subjLower))) return;
+    const key = m.date + '||' + (m.publisher || '');
+    if(!examGradeMap[key]) examGradeMap[key] = { grades: new Set() };
+    const gs = metaGrades(m).length ? metaGrades(m) : ['*'];
+    gs.forEach(g => examGradeMap[key].grades.add(g));
+  });
+  const attendedSetByStu = {};
+  DB.e.forEach(e => {
+    if(e.examType !== examType || e.abs) return;
+    if(date && e.date !== date) return;
+    if(subject && (!e.subs || !e.subs[subjTitle])) return;
+    const k = e.date + '||' + (e.publisher || '');
+    if(!attendedSetByStu[e.studentNo]) attendedSetByStu[e.studentNo] = new Set();
+    attendedSetByStu[e.studentNo].add(k);
+  });
+  let baseCount = 0, attendedCount = 0;
+  eligible.forEach(stu => {
+    const g = getGrade(stu.class);
+    const att = attendedSetByStu[stu.no] || new Set();
+    Object.entries(examGradeMap).forEach(([key, info]) => {
+      if(!(info.grades.has('*') || info.grades.has(g))) return;
+      baseCount++;
+      if(att.has(key)) attendedCount++;
+    });
+  });
+  const rate = baseCount > 0 ? Math.max(0, Math.min(100, Math.round((attendedCount / baseCount) * 100))) : 0;
+  return { baseCount, attendedCount, rate };
+}
+
+// Ders bazlı metrikte (sb='s_...') dersi içermeyen kayıtlar 0 net sayılmasın: ders bazlı olmayan metriklerde her kayıt geçerlidir
+function _hasMetric(x, sb){
+  if(!sb || sb.indexOf('s_') !== 0) return true;
+  const k = toTitleCase(sb.replace('s_', ''));
+  return !!(x.subs && x.subs[k]);
+}
+// Öğrenci başına ortalama değerler (öğrencinin birden çok sınavdaki kayıtları tek gözleme indirgenir)
+function _perStudentMeans(rows, getVal){
+  const m = {};
+  rows.forEach(x => {
+    const v = getVal(x); if(v === null || v === undefined || !isFinite(v)) return;
+    const s = m[x.studentNo] || (m[x.studentNo] = { sum: 0, n: 0 });
+    s.sum += Number(v); s.n++;
+  });
+  return Object.keys(m).map(k => m[k].sum / m[k].n);
+}
+// Aynı sınavdaki öğrenciler arası (sınav içi) birleşik standart sapma — sınavlar arası zorluk farkını içermez
+function _pooledWithinExamSd(rows, getVal){
+  const g = {};
+  rows.forEach(e => {
+    const v = getVal(e); if(v === null || v === undefined || !isFinite(v)) return;
+    const k = e.date + '||' + (e.publisher || '');
+    (g[k] = g[k] || []).push(Number(v));
+  });
+  let ss = 0, df = 0;
+  Object.values(g).forEach(arr => {
+    if(arr.length < 3) return;
+    const m = arr.reduce((a, b) => a + b, 0) / arr.length;
+    ss += arr.reduce((a, v) => a + (v - m) * (v - m), 0); df += arr.length - 1;
+  });
+  return df > 0 ? Math.sqrt(ss / df) : null;
+}
+// IQR / medyan oranına göre dağılım etiketi (iki ekranda tekrarlanan blok tek yerde). Eşikler sezgiseldir, kesin bilimsel sınır değildir.
+function _iqrSpreadInfo(iqr, med){
+  if(iqr === null || iqr === undefined || !med) return { color: '#6c757d', label: '—' };
+  const r = iqr / Math.abs(med);
+  if(r < 0.20) return { color: '#28a745', label: 'Homojen / Dengeli' };
+  if(r < 0.30) return { color: '#ffc107', label: 'Orta düzeyde dağılım' };
+  if(r < 0.40) return { color: '#fd7e14', label: 'Seviye farkı belirgin' };
+  return { color: '#dc3545', label: 'Seviye farkı çok yüksek' };
+}
+// Eşit değerli kayıtlara aynı sırayı veren (1-2-2-4) sıralama; sorted dizi azalan düzende, key aynı değerleri belirler
+function _rankSorted(sorted, keyFn){
+  const out = [];
+  let rank = 0, prevKey = null;
+  sorted.forEach((x, i) => { const k = keyFn(x); if(i === 0 || k !== prevKey) rank = i + 1; prevKey = k; out.push(rank); });
+  return out;
 }
 function _homogeneityLabel(cv){
   if(cv === null) return '—';
@@ -194,24 +300,66 @@ function _statsBlock(title, items, icon){
 // Trend kartı için minimum sınav sayısı (regresyonun anlamlı olması için).
 const _TREND_MIN_N = 3;
 
-/**
- * Adaptif R² eşiği — örneklem büyüklüğüne göre ölçeklenir.
- * Az sayıda sınavda (n=3-4) sabit 0.30 eşiği çok katı olur;
- * büyük n'lerde (n≥10) 0.25 yeterince seçici kalır.
- *
- * Pedagojik gerekçe: az veriyle düşük R² beklenebilir; bu nedenle küçük
- * örneklemde eşik daha temkinli, büyük örneklemde daha seçici tutulur.
- *
- * @param {number} n  Sınav sayısı
- * @returns {number}  Kullanılacak R² eşiği
- */
-function _adaptiveR2(n){
-  if(!n || n < 3) return 0.30; // n<3'te trend hesabı yapılmaz zaten
-  if(n <= 4)  return 0.15;
-  if(n <= 6)  return 0.20;
-  if(n <= 9)  return 0.25;
-  return 0.30; // n≥10 için standart eşik
+// Trend anlamlılığı: regresyon eğiminin t-testi (H0: eğim = 0, df = n-2, iki yönlü).
+// Eski "adaptif R² eşiği" az veride eşiği DÜŞÜRÜYORDU; oysa az veride R² çok oynaktır ve rastgele verilerde bile yüksek çıkabilir
+// (örn. n=4'te anlamlı sayılmak için R² ≳ 0.81, n=6'da ≳ 0.53 gerekir). Karar artık p-değerine göredir.
+const _TREND_ALPHA = 0.10;        // anlamlılık düzeyi
+const _TREND_SIG_MIN_N = 4;
+const _PROGRESS_MIN_N = 4;        // "en çok ilerleyen/gerileyen" seçiminde öğrenci başına en az sınav sayısı       // anlamlılık iddiası için en az gözlem (n=3'te df=1: p≤.10 için R²≥.976 gerekir, pratikte anlamsız)
+
+// Lanczos yaklaşımıyla ln Γ(x)
+function _lgamma(xx){
+  const cof = [76.18009172947146, -86.50532032941677, 24.01409824083091, -1.231739572450155, 0.1208650973866179e-2, -0.5395239384953e-5];
+  let y = xx, tmp = xx + 5.5;
+  tmp -= (xx + 0.5) * Math.log(tmp);
+  let ser = 1.000000000190015;
+  for(let j = 0; j < 6; j++){ y += 1; ser += cof[j] / y; }
+  return -tmp + Math.log(2.5066282746310005 * ser / xx);
 }
+// Düzenlenmiş tamamlanmamış beta fonksiyonu I_x(a,b) (Lentz sürekli kesri)
+function _betacf(a, b, x){
+  const MAXIT = 300, EPS = 3e-14, FPMIN = 1e-300;
+  let qab = a + b, qap = a + 1, qam = a - 1, c = 1, d = 1 - qab * x / qap;
+  if(Math.abs(d) < FPMIN) d = FPMIN;
+  d = 1 / d; let h = d;
+  for(let m = 1; m <= MAXIT; m++){
+    let m2 = 2 * m, aa = m * (b - m) * x / ((qam + m2) * (a + m2));
+    d = 1 + aa * d; if(Math.abs(d) < FPMIN) d = FPMIN;
+    c = 1 + aa / c; if(Math.abs(c) < FPMIN) c = FPMIN;
+    d = 1 / d; h *= d * c;
+    aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2));
+    d = 1 + aa * d; if(Math.abs(d) < FPMIN) d = FPMIN;
+    c = 1 + aa / c; if(Math.abs(c) < FPMIN) c = FPMIN;
+    d = 1 / d; let del = d * c; h *= del;
+    if(Math.abs(del - 1) < EPS) break;
+  }
+  return h;
+}
+function _betai(a, b, x){
+  if(x <= 0) return 0;
+  if(x >= 1) return 1;
+  let bt = Math.exp(_lgamma(a + b) - _lgamma(a) - _lgamma(b) + a * Math.log(x) + b * Math.log(1 - x));
+  return x < (a + 1) / (a + b + 2) ? bt * _betacf(a, b, x) / a : 1 - bt * _betacf(b, a, 1 - x) / b;
+}
+// Student t dağılımı, iki yönlü p-değeri
+function _tTwoSidedP(t, df){
+  if(!isFinite(t)) return 0;
+  return _betai(df / 2, 0.5, df / (df + t * t));
+}
+// Doğrusal trend uyumu: eğim, R², p-değeri ve "anlamlı mı" kararı
+function _trendFit(values){
+  const v = (values || []).filter(x => x !== null && x !== undefined && isFinite(x)).map(Number);
+  const n = v.length;
+  if(n < 2) return { n, slope: 0, r2: 0, p: null, significant: false };
+  if(v.every(x => x === v[0])) return { n, slope: 0, r2: 0, p: n >= 3 ? 1 : null, significant: false }; // sabit seri: trend yok
+  const slope = linRegSlope(v), r2 = linRegR2(v);
+  if(n < 3) return { n, slope, r2, p: null, significant: false };
+  let p;
+  if(r2 >= 1 - 1e-12) p = 0;
+  else p = _tTwoSidedP(Math.sqrt(r2 * (n - 2) / (1 - r2)), n - 2);
+  return { n, slope, r2, p, significant: n >= _TREND_SIG_MIN_N && p <= _TREND_ALPHA };
+}
+function _fmtP(p){ return p === null || p === undefined ? '' : (p < 0.01 ? 'p<0.01' : 'p=' + p.toFixed(2)); }
 
 function _sampleConfidence(n){
   if(n >= 10) return { cls:'confidence-high', label:'Güven yüksek', note:'Örneklem güçlü' };
@@ -299,30 +447,15 @@ function calcRiskScores() {
     let gr = gradeOf(no);
     if(!gr) return;
 
-    // enrolledAt: öğrenci sisteme geç eklendiyse önceki sınavlar için devamsızlık sayılmaz
-    let enrolledDate = stu.enrolledAt ? new Date(stu.enrolledAt) : null;
-    let isEnrolledBefore = (dateStr) => {
-      if(!enrolledDate) return true;
-      // dateStr formatı: GG.AA.YYYY
-      let m = String(dateStr).match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
-      if(!m) return true;
-      let examDate = new Date(parseInt(m[3]), parseInt(m[2])-1, parseInt(m[1]));
-      return examDate >= enrolledDate;
-    };
-
     Object.entries(types).forEach(([eType, exams]) => {
       let typeScore = 0;
       let flags =[];
 
       exams.sort((a,b) => srt(a.date, b.date));
 
-      // excused:true olan devamsızlıklar hariç tutulur
-      let attended = exams.filter(x => !x.abs || x.excused);
-      attended = attended.filter(x => !x.abs); // sadece katıldıklarını al
+      let attended = exams.filter(x => !x.abs); // yalnızca katıldığı sınavlar
 
-      let allDatesForGroup = [...(examDatesByGroup[eType + '||' + gr] ||[])]
-        .filter(isEnrolledBefore) // Geç eklenen öğrenci için erken tarihler hariç
-        .sort(srt);
+      let allDatesForGroup = [...(examDatesByGroup[eType + '||' + gr] ||[])].sort(srt);
       let totalHeld = allDatesForGroup.length;
 
       // A) KATILIM / DEVAMSIZLIK RİSKİ (Maks 30 Puan)
@@ -342,14 +475,19 @@ function calcRiskScores() {
 
       // B ve C için en az 2 sınav gerekli
       if(attended.length >= 2) {
-        // EWMA ile son 3 sınav ağırlıklı ortalaması
-        let allNets = attended.map(x => x.totalNet);
-        let ewmaScore = ewma(allNets, 3, 0.5); // Son 3 sınavın EWMA'sı
+        // Öğrencinin HER sınavdaki göreli konumu (sınav içi z-skoru): sınavlar arası zorluk farkı ortadan kalkar.
+        // (Ham net serisinin EWMA'sını son sınavın ham dağılımıyla kıyaslamak, düzleştirilmiş değeri düzleştirilmemiş dağılımla
+        //  karşılaştırdığı için tutarsızdı.)
+        let zSeries = [];
+        attended.forEach(x => {
+          let a = popAvgs[eType + '||' + gr + '||' + x.date];
+          if(a && a.totalNets.length >= 3) zSeries.push(calcZScore(x.totalNet, a.totalNets));
+        });
+        let ewmaZ = ewma(zSeries, 3, 0.5); // son 3 sınavın göreli konumunun EWMA'sı
 
-        // R² ile trend güvenilirliği — düşük R² = "regression to the mean" gürültüsü.
-        // Eşik, sınav sayısına göre adaptif: az veriyle 0.30 çok kısıtlayıcıdır.
-        let r2 = linRegR2(allNets);
-        let trendReliable = r2 >= _adaptiveR2(allNets.length);
+        // Trend güvenilirliği: göreli konumdaki DÜŞÜŞ eğiliminin istatistiksel anlamlılığı (eğim t-testi, p≤.10, en az 4 sınav).
+        let zFit = _trendFit(zSeries);
+        let trendReliable = zFit.significant && zFit.slope < 0;
 
         let lastEx = attended[attended.length - 1];
         let prevEx = attended[attended.length - 2];
@@ -365,10 +503,10 @@ function calcRiskScores() {
             flags.push({ type:'rank', severity:'low', examType:eType, detail:`${eType}: Sıralama geriledi ancak sonuçlar dalgalı — kesin bir düşüş trendi yok.`, z: 10 });
             typeScore += 10;
           } else if(delta >= 0.15) {
-            flags.push({ type:'rank', severity:'high', examType:eType, detail:`${eType}: Kurum sıralamasında belirgin düşüş — son iki sınavta %${Math.round(delta*100)} geriledi.`, z: 40 });
+            flags.push({ type:'rank', severity:'high', examType:eType, detail:`${eType}: Kurum sıralamasında belirgin düşüş — son iki sınavda %${Math.round(delta*100)} geriledi.`, z: 40 });
             typeScore += 40;
           } else if(delta >= 0.08) {
-            flags.push({ type:'rank', severity:'med', examType:eType, detail:`${eType}: Kurum sıralamasında gerileme — son iki sınavta %${Math.round(delta*100)} geriledi.`, z: 20 });
+            flags.push({ type:'rank', severity:'med', examType:eType, detail:`${eType}: Kurum sıralamasında gerileme — son iki sınavda %${Math.round(delta*100)} geriledi.`, z: 20 });
             typeScore += 20;
           }
         }
@@ -378,8 +516,8 @@ function calcRiskScores() {
         let aLast = popAvgs[pKeyLast];
 
         if(aLast && aLast.totalNets.length >= 3) {
-          // Z-skoru: öğrencinin EWMA'sı popülasyon içinde nerede?
-          let stuZ = calcZScore(ewmaScore !== null ? ewmaScore : lastEx.totalNet, aLast.totalNets);
+          // Öğrencinin son dönemdeki göreli konumu (sınav içi z-skorlarının EWMA'sı)
+          let stuZ = ewmaZ !== null ? ewmaZ : calcZScore(lastEx.totalNet, aLast.totalNets);
 
           let dropScore = 0;
           if(stuZ <= -2.0) {
@@ -403,8 +541,8 @@ function calcRiskScores() {
               let pSub = aLast.subjs[s];
               if(!pSub || !pSub.vals || pSub.vals.length < 3) return;
               let subjZ = calcZScore(lastEx.subs[s].net, pSub.vals);
-              if(subjZ <= -2.0) { droppedSubjs.push(escapeHtml(toTitleCase(s))); maxSubjSeverity = 'high'; }
-              else if(subjZ <= -1.2 && maxSubjSeverity !== 'high') { droppedSubjs.push(escapeHtml(toTitleCase(s))); maxSubjSeverity = maxSubjSeverity || 'med'; }
+              if(subjZ <= -2.0) { droppedSubjs.push(toTitleCase(s)); maxSubjSeverity = 'high'; }
+              else if(subjZ <= -1.2 && maxSubjSeverity !== 'high') { droppedSubjs.push(toTitleCase(s)); maxSubjSeverity = maxSubjSeverity || 'med'; }
             });
             if(droppedSubjs.length > 0) {
               let sPts = maxSubjSeverity === 'high' ? 30 : 15;
@@ -439,8 +577,8 @@ function calcRiskScores() {
                 let pSubLast = aLast.subjs[s], pSubPrev = aPrev.subjs[s];
                 if(!pSubLast || !pSubPrev) return;
                 let d = checkDrop(lastEx.subs[s].net, pSubLast.avg, prevEx.subs[s]?prevEx.subs[s].net:0, pSubPrev.avg);
-                if(d >= 0.20) { droppedSubjs.push(escapeHtml(toTitleCase(s))); maxSubjSeverity = 'high'; }
-                else if(d >= 0.10 && maxSubjSeverity !== 'high') { droppedSubjs.push(escapeHtml(toTitleCase(s))); maxSubjSeverity = maxSubjSeverity || 'med'; }
+                if(d >= 0.20) { droppedSubjs.push(toTitleCase(s)); maxSubjSeverity = 'high'; }
+                else if(d >= 0.10 && maxSubjSeverity !== 'high') { droppedSubjs.push(toTitleCase(s)); maxSubjSeverity = maxSubjSeverity || 'med'; }
               });
               if(droppedSubjs.length > 0) {
                 let sPts = maxSubjSeverity === 'high' ? 30 : 15;
@@ -463,8 +601,8 @@ function calcRiskScores() {
         });
         riskEntries.push({
           no: no,
-          name: escapeHtml(stu.name),
-          cls: escapeHtml(stu.class),
+          name: stu.name, // ham değer; görüntülerken escapeHtml uygulanır (çift kaçış olmasın)
+          cls: stu.class,
           score: typeScore,
           level: topLevel,
           flags: uniqueFlags,
@@ -571,14 +709,6 @@ function setRiskLevel(level) {
   else { el.value = (el.value === level) ? '' : level; }
   renderRiskPanel();
   if(typeof applyExamColorToFilters === 'function') applyExamColorToFilters();
-  if(typeof updateFilterSummary === 'function') updateFilterSummary();
-}
-
-function goToStudent(no) {
-  sAct(no, true);
-  // Öğrenci sekmesine geç
-  let navEl = getEl('nav-anasayfa');
-  sTab('anasayfa', navEl);
 }
 
 function calcBoxPlot(values) {
@@ -606,6 +736,8 @@ function calcBoxPlot(values) {
 
 function mkBoxPlotSVG(groups, studentVal, options) {
   options = options || {};
+  // Her grafikte benzersiz filtre kimliği (sayfada birden çok SVG olduğunda yinelenen id oluşmasın)
+  const _glowId = 'stuGlow' + (window._bpUidSeq = (window._bpUidSeq || 0) + 1);
   let W = options.width || 520, H = options.height || 210;
   let marginLeft = 44, marginRight = 14, marginTop = 32, marginBottom = 44;
   let plotW = W - marginLeft - marginRight, plotH = H - marginTop - marginBottom;
@@ -677,7 +809,7 @@ function mkBoxPlotSVG(groups, studentVal, options) {
     // Öğrenci nokta (vurgulu)
     if(studentVal !== null && studentVal !== undefined && !isNaN(studentVal)) {
       let sy = toY(studentVal);
-      boxes += `<circle cx="${cx.toFixed(1)}" cy="${sy.toFixed(1)}" r="7" fill="#dc3545" stroke="#fff" stroke-width="2" filter="url(#stuGlow)"/>`;
+      boxes += `<circle cx="${cx.toFixed(1)}" cy="${sy.toFixed(1)}" r="7" fill="#dc3545" stroke="#fff" stroke-width="2" filter="url(#${_glowId})"/>`;
     }
 
     // X ekseni etiketi
@@ -708,9 +840,9 @@ function mkBoxPlotSVG(groups, studentVal, options) {
 
   let titleText = options.title ? `<text x="${marginLeft}" y="${marginTop - 10}" font-size="10" font-weight="700" fill="#3a5a9a">${escapeHtml(options.title)}</text>` : '';
 
-  return `<div class="boxplot-wrap"><svg class="boxplot-svg" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">
+  return `<div class="boxplot-wrap"><svg class="boxplot-svg" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${escapeHtml(options.title || 'Kutu grafiği')}"><title>${escapeHtml(options.title || 'Kutu grafiği')}</title>
     <defs>
-      <filter id="stuGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <filter id="${_glowId}" x="-50%" y="-50%" width="200%" height="200%">
         <feGaussianBlur stdDeviation="2" result="blur"/>
         <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
       </filter>
@@ -762,7 +894,10 @@ function calcKarneSummaryCards(stuNo, examType, grade, examsData, sb) {
   let stuAvg = stuVals.reduce((a,b)=>a+b,0) / stuVals.length;
 
   let allSameGrade = DB.e.filter(x => x.examType===examType && !x.abs && getGrade(x.studentClass)===grade);
-  let genVals = allSameGrade.map(_getVal).filter(v => v !== null);
+  // Kurum ortalaması öğrencinin KATILDIĞI sınavlarla eşleştirilir (girmediği sınavlar hariç); aksi halde öğrenci ortalaması ile
+  // kurum ortalaması farklı sınav kümelerinden hesaplanır ve zorluk farkı karşılaştırmayı bozar.
+  let _attKeys = new Set(attended.map(e => e.date + '||' + (e.publisher || '')));
+  let genVals = allSameGrade.filter(e => _attKeys.has(e.date + '||' + (e.publisher || ''))).map(_getVal).filter(v => v !== null);
   let genAvg = genVals.length ? genVals.reduce((a,b)=>a+b,0)/genVals.length : null;
 
   let stuMap_local = {};
@@ -804,25 +939,25 @@ function calcKarneSummaryCards(stuNo, examType, grade, examsData, sb) {
   let trend = null;
   let consistency = null;
   if(metricVals.length >= _TREND_MIN_N){
-    let slope = linRegSlope(metricVals);
-    let r2    = linRegR2(metricVals);
+    // Yön etiketi yalnızca eğim istatistiksel olarak anlamlıysa (t-testi) verilir; aksi halde "belirgin trend yok"
+    let fit = _trendFit(metricVals);
+    let slope = fit.slope, r2 = fit.r2;
     let ewmaVal = ewma(metricVals, 3, 0.5);
     let totalChange = slope * (metricVals.length - 1);
     let trendClass, trendIcon, trendText;
-    if(r2 < 0.20) {
-      trendClass = 'trend-stable'; trendIcon = 'fa-question-circle'; trendText = 'Dalgalı';
+    if(!fit.significant) {
+      trendClass = 'trend-stable'; trendIcon = 'fa-question-circle';
+      trendText = fit.n < _TREND_SIG_MIN_N ? 'Veri yetersiz' : 'Belirgin trend yok';
     } else if(slope > 0) {
       trendClass = 'trend-up'; trendIcon = 'fa-arrow-up'; trendText = 'Yükseliş';
-    } else if(slope < 0) {
-      trendClass = 'trend-down'; trendIcon = 'fa-arrow-down'; trendText = 'Düşüş';
     } else {
-      trendClass = 'trend-stable'; trendIcon = 'fa-minus'; trendText = 'Sabit';
+      trendClass = 'trend-down'; trendIcon = 'fa-arrow-down'; trendText = 'Düşüş';
     }
-    trend = { totalChange, slope, r2, ewmaVal, count: metricVals.length, trendClass, trendIcon, trendText };
+    trend = { totalChange, slope, r2, p: fit.p, significant: fit.significant, ewmaVal, count: metricVals.length, trendClass, trendIcon, trendText };
 
     let surpriseRMSE = linRegRMSE(metricVals);
     if(surpriseRMSE !== null){
-      consistency = { sd: surpriseRMSE, label: _surpriseLabel(surpriseRMSE), n: metricVals.length };
+      consistency = { sd: surpriseRMSE, label: _surpriseLabel(surpriseRMSE, _pooledWithinExamSd(allSameGrade, _getVal)), n: metricVals.length };
     }
   }
 
@@ -890,9 +1025,11 @@ function buildKarneExamCards(summary, examType, metricLabel) {
 
     // R²: Trendin ne kadar tutarlı/güvenilir olduğunu gösterir (0-1; 1 mükemmel uyum)
     let r2Pct  = trend.r2 !== undefined ? Math.round(trend.r2 * 100) : null;
-    let r2Tooltip = r2Pct !== null
-      ? (r2Pct >= 60 ? 'R²: Trend tutarlı ve güvenilir' : (r2Pct >= 30 ? 'R²: Trend kısmen tutarlı' : 'R²: Sonuçlar çok dalgalı, net bir trend yok'))
-      : '';
+    let r2Tooltip = trend.significant
+      ? 'Eğim istatistiksel olarak anlamlı (t-testi, p≤0.10): sınav sonuçlarında tutarlı bir yön var.'
+      : (trend.count < _TREND_SIG_MIN_N
+          ? `Trendin anlamlılığı için en az ${_TREND_SIG_MIN_N} sınav gerekir; şu an yön iddia edilmiyor.`
+          : 'Sonuçlar dalgalı; istatistiksel olarak anlamlı bir trend yok (yön yorumu yapılmamalı).');
 
     // EWMA: Son sınavlara daha fazla ağırlık verilen ortalama (kısa-vadeli momentum)
     let ewmaVal = trend.ewmaVal !== null && trend.ewmaVal !== undefined ? trend.ewmaVal.toFixed(1) : null;
@@ -913,7 +1050,7 @@ function buildKarneExamCards(summary, examType, metricLabel) {
       <div class="col mb-1 trend-metric" title="${r2Tooltip}">
         <span class="trend-indicator trend-indicator-sm ${trend.trendClass}"><i class="fas ${trend.trendIcon} me-1"></i>${trend.trendText}</span>
         <div class="small text-muted mt-1 trend-label"><strong>Genel Yön (Trend)</strong></div>
-        ${r2Pct !== null ? `<div class="x-small mt-1 ${trendTone}"><strong>%${r2Pct}</strong> doğruluk payıyla (R²: ${(r2Pct/100).toFixed(2)})</div>` : ''}
+        ${r2Pct !== null ? `<div class="x-small mt-1 ${trendTone}">Açıklanan varyans: <strong>%${r2Pct}</strong> (R²: ${(r2Pct/100).toFixed(2)}${trend.p !== null && trend.p !== undefined ? ', ' + _fmtP(trend.p) : ''})</div>` : ''}
       </div>
       <div class="col mb-1 trend-metric" title="İlk sınavdan son sınava kadar regresyon doğrusunun toplam değişimi">
         <div class="trend-value ${trendTone}">${tSign}${trend.totalChange.toFixed(1)}</div>
@@ -941,7 +1078,7 @@ function buildKarneExamCards(summary, examType, metricLabel) {
 
   let avgLabel = isScore ? 'Ortalama Puan' : `Ortalama ${metricLabel}`;
   let avgLabelSafe = escapeHtml(avgLabel);
-  let genOrtLabel = isScore ? 'Genel Puan Ort' : 'Genel Ort';
+  let genOrtLabel = isScore ? 'Genel Puan Ortalaması' : 'Genel Ortalama';
 
   let cardsHtml = `<div class="student-profile-part student-profile-info-part"><div class="row g-2 sec-cards-row analysis-info-cards student-profile-info-cards mb-2">
     <div class="col-12 col-md-3 mb-2">
@@ -1041,7 +1178,7 @@ function rH(){
     let _examCount = el.filter(e=>!e.abs).length;
     let _examColorIdx = (typeof examColorIdx === 'function') ? examColorIdx(t) : 0;
     let _examLabel = (typeof toExamLabel === 'function') ? toExamLabel(t) : t;
-    h+=`<div class="karne-bolum exam-type-block exam-color-${_examColorIdx}${isFirstType?' exam-type-first':''}" data-stu-name="${stuNameSafe}" data-stu-class="${stuClassSafe}"><h5 class="mt-3 mb-2 text-primary border-bottom pb-2"><span>${escapeHtml(_examLabel)} Sınavları</span><span class="etb-count no-print">${_examCount} Sınav</span></h5>${cardsHtml}${riskCardsHtml}<div id="${bpKarneId}" class="student-profile-part student-profile-boxplot-part"></div><div class="student-profile-part student-profile-table-part"><div class="scroll-hint"><i class="fas fa-arrows-alt-h me-1"></i>Tabloyu kaydırın</div><div class="scroll"><table class="table table-sm table-bordered table-striped" data-sh="${escapeHtml(t)}"><thead><tr><th>#</th><th>Tarih</th><th>Yayınevi</th>${sb.map(x=>`<th title="${escapeHtml(toTitleCase(x))}">${escapeHtml(abbrevSub(x,shorten))}</th>`).join('')}<th>Top.Net</th><th>Puan</th><th>Snf(S/K)</th><th>Okul(S/K)</th></tr></thead><tbody>`;
+    h+=`<div class="karne-bolum exam-type-block exam-color-${_examColorIdx}${isFirstType?' exam-type-first':''}" data-stu-name="${stuNameSafe}" data-stu-class="${stuClassSafe}"><h5 class="mt-3 mb-2 text-primary border-bottom pb-2"><span>${escapeHtml(_examLabel)} Sınavları</span><span class="etb-count no-print">${_examCount} Sınav</span></h5>${cardsHtml}${riskCardsHtml}<div id="${bpKarneId}" class="student-profile-part student-profile-boxplot-part"></div><div class="student-profile-part student-profile-table-part"><div class="scroll-hint"><i class="fas fa-arrows-alt-h me-1"></i>Tabloyu kaydırın</div><div class="scroll"><table class="table table-sm table-bordered table-striped" data-sh="${escapeHtml(t)}"><thead><tr><th>#</th><th>Tarih</th><th>Yayınevi</th>${sb.map(x=>`<th title="${escapeHtml(toTitleCase(x))}">${escapeHtml(abbrevSub(x,shorten))}</th>`).join('')}<th>Top. Net</th><th>Puan</th><th>Snf(S/K)</th><th>Kurum(S/K)</th></tr></thead><tbody>`;
     
     let kIdx = 1;
     el.forEach(e=>{
@@ -1052,8 +1189,10 @@ function rH(){
     
     let attended = el.filter(e => !e.abs);
     if(attended.length > 0){
-      let allGradeExams = DB.e.filter(x => x.examType === t && !x.abs && getGrade(x.studentClass) === stGrade);
-      let allClassExams = DB.e.filter(x => x.examType === t && !x.abs && x.studentClass === s.class);
+      // Sınıf/Kurum ortalaması öğrencinin KATILDIĞI sınavlarla eşleştirilir (girmediği sınavlar hariç)
+      let _attK = new Set(attended.map(e => e.date + '||' + (e.publisher || '')));
+      let allGradeExams = DB.e.filter(x => x.examType === t && !x.abs && getGrade(x.studentClass) === stGrade && _attK.has(x.date + '||' + (x.publisher || '')));
+      let allClassExams = DB.e.filter(x => x.examType === t && !x.abs && x.studentClass === s.class && _attK.has(x.date + '||' + (x.publisher || '')));
       let genAvgSubs = sb.map(x => { let v = allGradeExams.filter(e => e.subs[x] !== undefined).map(e => e.subs[x].net); return v.length ? (v.reduce((a,b)=>a+b,0)/v.length).toFixed(2) : '—'; });
       let genAvgNet = allGradeExams.length > 0 ? (allGradeExams.reduce((a,e)=>a+e.totalNet,0)/allGradeExams.length).toFixed(2) : '—';
       let genAvgScore = allGradeExams.length > 0 ? (allGradeExams.reduce((a,e)=>a+e.score,0)/allGradeExams.length).toFixed(2) : '—';
@@ -1108,7 +1247,7 @@ function buildSingleExamCards(stu, examType, curExam, prevExam, stGrade){
   let netTxt   = (curExam.totalNet!==undefined && curExam.totalNet!==null) ? curExam.totalNet.toFixed(2) : '—';
   let rankBits =[];
   if(curExam.cR) rankBits.push(`Sınıf ${escapeHtml(curExam.cR)}/${escapeHtml(curExam.cP||'—')}`);
-  if(curExam.iR) rankBits.push(`Okul ${escapeHtml(curExam.iR)}/${escapeHtml(curExam.iP||'—')}`);
+  if(curExam.iR) rankBits.push(`Kurum ${escapeHtml(curExam.iR)}/${escapeHtml(curExam.iP||'—')}`);
   let card1 = `<div class="${cardCol}"><div class="sec-card">
     <div class="sec-icon"><i class="fas fa-star"></i></div>
     <div class="sec-body">
@@ -1158,12 +1297,17 @@ function buildSingleExamCards(stu, examType, curExam, prevExam, stGrade){
     let dC = clsA!==null ? net - clsA : null;
     let dI = insA!==null ? net - insA : null;
     let combined = (dC!==null && dI!==null) ? (dC+dI)/2 : (dC!==null ? dC : dI);
-    return combined === null ? null : { name: s, net, clsA, insA, dC, dI, combined };
+    // Dersler arası kıyas için ham net farkı yerine standartlaştırılmış fark: soru sayısı/yayılımı büyük dersler (ham farkları doğal olarak
+    // büyüktür) sistematik olarak "en başarılı/en zayıf" seçilmesin. Ölçek: aynı sınavdaki öğrenciler arası standart sapma.
+    let _scaleSd = iv.length >= 5 ? _statStd(iv) : (cv.length >= 5 ? _statStd(cv) : null);
+    let zc = (combined !== null && _scaleSd && _scaleSd > 0) ? combined / _scaleSd : null;
+    return combined === null ? null : { name: s, net, clsA, insA, dC, dI, combined, zc };
   }).filter(x => x);
 
   let card3, card4;
   if(perSubj.length){
-    let sorted =[...perSubj].sort((a,b)=> b.combined - a.combined);
+    let _useZ = perSubj.every(x => x.zc !== null); // tüm derslerde ölçek hesaplanabiliyorsa standartlaştırılmış fark, değilse ham fark
+    let sorted =[...perSubj].sort((a,b)=> _useZ ? (b.zc - a.zc) : (b.combined - a.combined));
     let best = sorted[0], worst = sorted[sorted.length-1];
     let mkSubCard = (it, isBest) => {
       let cls = isBest ? 'sec-pos' : 'sec-neg';
@@ -1257,14 +1401,14 @@ function buildStuBoxPlots(stuNo, examType, stuClass, stuGrade, sb) {
   let label = sb === 'score' ? 'Puan' : (sb === 'totalNet' || !sb ? 'Toplam Net' : toTitleCase(sb.replace('s_','')) + ' Neti');
 
   let clsBP = clsAvgArr.length >= 3 ? mkBoxPlotSVG([{label: stuClass, values: clsAvgArr, color:'#28a745'}], stuAvg, {title: `Sınıf İçi Dağılım — ${label}`, height: 195}) : '';
-  let insBP = insAvgArr.length >= 3 ? mkBoxPlotSVG([{label: stuGrade+'. Sınıf', values: insAvgArr, color:'#0d6efd'}], stuAvg, {title: `Okul İçi Dağılım — ${label}`, height: 195}) : '';
+  let insBP = insAvgArr.length >= 3 ? mkBoxPlotSVG([{label: stuGrade+'. Sınıf', values: insAvgArr, color:'#0d6efd'}], stuAvg, {title: `Kurum İçi Dağılım — ${label}`, height: 195}) : '';
 
   if(!clsBP && !insBP) return '';
 
   let cols2 = (clsBP && insBP) ? 'col-md-6' : 'col-12';
   return `<div class="row mt-2 avoid-break avoid-break-row">
     ${clsBP ? `<div class="${cols2}"><div class="boxplot-card"><div class="boxplot-title"><i class="fas fa-chart-bar me-1 boxplot-icon-class"></i>Sınıf İçi Dağılım <span class="boxplot-note">— kırmızı = bu öğrenci</span></div>${clsBP}</div></div>` : ''}
-    ${insBP ? `<div class="${cols2}"><div class="boxplot-card"><div class="boxplot-title"><i class="fas fa-chart-bar me-1 boxplot-icon-school"></i>Okul İçi Dağılım <span class="boxplot-note">— kırmızı = bu öğrenci</span></div>${insBP}</div></div>` : ''}
+    ${insBP ? `<div class="${cols2}"><div class="boxplot-card"><div class="boxplot-title"><i class="fas fa-chart-bar me-1 boxplot-icon-school"></i>Kurum İçi Dağılım <span class="boxplot-note">— kırmızı = bu öğrenci</span></div>${insBP}</div></div>` : ''}
   </div>`;
 }
 
@@ -1272,10 +1416,10 @@ function buildStuBoxPlots(stuNo, examType, stuClass, stuGrade, sb) {
 // DERS ANALİZİ › "Tüm Dersler": satırlarda dersler, sütunlarda sınıflar
 //  • Hücre = sınıfın o dersteki ortalama neti (seçili sınav / "Tüm Sınavlar" kayıtları üzerinden;
 //    "Sınıf Ortalamaları" tablosuyla aynı hesap, parantez içi kayıt sayısı).
-//  • Hücre rengi + istatistikler = sınıfın aynı dersteki DİĞER sınıflardan standart farkı (Cohen's d,
+//  • Hücre rengi + istatistikler = sınıfın aynı dersteki DİĞER sınıflardan standart farkı (Hedges g,
 //    öğrenci bazlı ortalama netler; sınıfta ve karşılaştırma grubunda en az 10 öğrenci — Ders Analizi'ndeki eşikle aynı).
 //  • Dersler arası soru sayısı farklı olabileceğinden ham net yalnızca aynı satırdaki sınıflar arasında
-//    karşılaştırılır; dersler arası kıyas standart fark (d) üzerinden yapılır.
+//    karşılaştırılır; dersler arası kıyas standart fark (g) üzerinden yapılır.
 // ============================================================
 const _SUBJ_ALL_MIN_N = 10;
 
@@ -1329,7 +1473,7 @@ function rAllSubjects(r, eT, lvl, br, dateFilterS){
   let multi = clsList.length > 1;
   let stuAvgs = g => Object.keys(g.stu).map(no => g.stu[no].sum / g.stu[no].n);
 
-  // ---- Standart fark (Cohen's d): sınıf vs aynı dersteki diğer sınıflar
+  // ---- Standart fark (Hedges g): sınıf vs aynı dersteki diğer sınıflar
   let dMat = {}, cellList = [], spreadList = [], clsComp = {};
   subjKeys.forEach(sk => {
     let sm = subjMap[sk]; dMat[sk] = {};
@@ -1353,41 +1497,7 @@ function rAllSubjects(r, eT, lvl, br, dateFilterS){
   let compList = clsList.filter(c => clsComp[c] && clsComp[c].n >= 2).map(c => ({ c, v: clsComp[c].sum / clsComp[c].n, n: clsComp[c].n })).sort((a,b) => b.v - a.v);
 
   // ---- Katılım oranı (Ders Analizi ile aynı mantık; ders şartı olmadan sınav bazında)
-  let eligibleStus = DB.s.filter(s => {
-    let m = s.class.match(/^(\d+)([a-zA-ZğüşıöçĞÜŞİÖÇ]+)$/);
-    if(!m) return false;
-    if(lvl && m[1] !== lvl) return false;
-    if(br && m[2].toLocaleUpperCase('tr-TR') !== br) return false;
-    return true;
-  });
-  let examGradeMap = {};
-  Object.values(EXAM_META).forEach(m => {
-    if(m.examType !== eT) return;
-    if(dateFilterS && m.date !== dateFilterS) return;
-    let key = m.date + '||' + (m.publisher || '');
-    if(!examGradeMap[key]) examGradeMap[key] = { grades:new Set() };
-    let gs = metaGrades(m).length ? metaGrades(m) : ['*'];
-    gs.forEach(g => examGradeMap[key].grades.add(g));
-  });
-  let attendedByStu = {};
-  DB.e.forEach(e => {
-    if(e.examType !== eT || e.abs) return;
-    if(dateFilterS && e.date !== dateFilterS) return;
-    let k = e.date + '||' + (e.publisher || '');
-    if(!attendedByStu[e.studentNo]) attendedByStu[e.studentNo] = new Set();
-    attendedByStu[e.studentNo].add(k);
-  });
-  let baseCount = 0, attendedCount = 0;
-  eligibleStus.forEach(stu => {
-    let g = getGrade(stu.class);
-    let att = attendedByStu[stu.no] || new Set();
-    Object.entries(examGradeMap).forEach(([key, info]) => {
-      if(!(info.grades.has('*') || info.grades.has(g))) return;
-      baseCount++;
-      if(att.has(key)) attendedCount++;
-    });
-  });
-  let partRate = baseCount > 0 ? Math.max(0, Math.min(100, Math.round((attendedCount / baseCount) * 100))) : 0;
+  let { baseCount, attendedCount, rate: partRate } = _calcParticipation({ examType: eT, lvl, br, date: dateFilterS });
 
   let lvlStr = (lvl ? `${lvl}. Sınıflar` : 'Tüm Sınıflar') + (br ? ` / ${br} Şubesi` : '');
   let dateCount = usedDates.size;
@@ -1402,8 +1512,8 @@ function rAllSubjects(r, eT, lvl, br, dateFilterS){
   if(!br && compList.length >= 2){
     let best = compList[0], worst = compList[compList.length - 1];
     row2Html = `<div class="row g-2 sec-cards-row analysis-info-cards subject-info-cards mb-2">
-      <div class="col-12 col-md-6 col-lg flex-fill mb-2"><div class="sec-card sec-pos h-100"><div class="sec-icon"><i class="fas fa-school"></i></div><div class="sec-body"><div class="sec-label">En Güçlü Sınıf</div><div class="sec-value">${escapeHtml(best.c)}</div><div class="sec-sub">Bileşik d: ${_subjAllFmtD(best.v)} (${best.n} ders)</div></div></div></div>
-      <div class="col-12 col-md-6 col-lg flex-fill mb-2"><div class="sec-card sec-neg h-100"><div class="sec-icon"><i class="fas fa-exclamation-circle"></i></div><div class="sec-body"><div class="sec-label">En Zayıf Sınıf</div><div class="sec-value">${escapeHtml(worst.c)}</div><div class="sec-sub">Bileşik d: ${_subjAllFmtD(worst.v)} (${worst.n} ders)</div></div></div></div>
+      <div class="col-12 col-md-6 col-lg flex-fill mb-2"><div class="sec-card sec-pos h-100"><div class="sec-icon"><i class="fas fa-school"></i></div><div class="sec-body"><div class="sec-label">En Güçlü Sınıf</div><div class="sec-value">${escapeHtml(best.c)}</div><div class="sec-sub">Bileşik g: ${_subjAllFmtD(best.v)} (${best.n} ders)</div></div></div></div>
+      <div class="col-12 col-md-6 col-lg flex-fill mb-2"><div class="sec-card sec-neg h-100"><div class="sec-icon"><i class="fas fa-exclamation-circle"></i></div><div class="sec-body"><div class="sec-label">En Zayıf Sınıf</div><div class="sec-value">${escapeHtml(worst.c)}</div><div class="sec-sub">Bileşik g: ${_subjAllFmtD(worst.v)} (${worst.n} ders)</div></div></div></div>
     </div>`;
   }
 
@@ -1415,25 +1525,25 @@ function rAllSubjects(r, eT, lvl, br, dateFilterS){
     let lo = cellList.reduce((m,x) => x.d < m.d ? x : m, cellList[0]);
     if(hi.d > 0) items.push(_trendStatItem(
       'Etki Büyüklüğü (En Yüksek)',
-      `<span style="color:#198754;">d = ${_subjAllFmtD(hi.d)}</span>`,
+      `<span style="color:#198754;">g = ${_subjAllFmtD(hi.d)}</span>`,
       `${escapeHtml(hi.c)} · ${escapeHtml(toTitleCase(hi.sk))} — ${escapeHtml(_cohenLabel(hi.d))}`,
-      "Bir sınıfın bir dersteki ortalamasının, aynı dersteki diğer sınıflardan en yüksek standart farkı (Cohen's d).", ''));
+      "Bir sınıfın bir dersteki ortalamasının, aynı dersteki diğer sınıflardan en yüksek standart farkı (Hedges g).", ''));
     if(lo.d < 0) items.push(_trendStatItem(
       'Etki Büyüklüğü (En Düşük)',
-      `<span style="color:#dc3545;">d = ${_subjAllFmtD(lo.d)}</span>`,
+      `<span style="color:#dc3545;">g = ${_subjAllFmtD(lo.d)}</span>`,
       `${escapeHtml(lo.c)} · ${escapeHtml(toTitleCase(lo.sk))} — ${escapeHtml(_cohenLabel(lo.d))}`,
-      "Bir sınıfın bir dersteki ortalamasının, aynı dersteki diğer sınıflardan en düşük standart farkı (Cohen's d).", ''));
+      "Bir sınıfın bir dersteki ortalamasının, aynı dersteki diğer sınıflardan en düşük standart farkı (Hedges g).", ''));
     if(spreadList.length >= 2){
       let sMax = spreadList.reduce((m,x) => x.v > m.v ? x : m, spreadList[0]);
       let sMin = spreadList.reduce((m,x) => x.v < m.v ? x : m, spreadList[0]);
       items.push(_trendStatItem(
         'Sınıflar Arası Ayrışma (En Yüksek)',
-        `<span class="text-warning">Δd = ${sMax.v.toFixed(2)}</span>`,
+        `<span class="text-warning">Δg = ${sMax.v.toFixed(2)}</span>`,
         escapeHtml(toTitleCase(sMax.sk)),
         "Dersin sınıflar arası en yüksek ve en düşük standart farkı arasındaki aralık. Büyükse sınıflar bu derste birbirinden belirgin ayrışır.", ''));
       items.push(_trendStatItem(
         'Sınıflar Arası Ayrışma (En Düşük)',
-        `<span class="text-success">Δd = ${sMin.v.toFixed(2)}</span>`,
+        `<span class="text-success">Δg = ${sMin.v.toFixed(2)}</span>`,
         escapeHtml(toTitleCase(sMin.sk)),
         "Sınıflar arası standart fark aralığının en dar olduğu ders; sınıflar bu derste birbirine en yakındır.", ''));
     }
@@ -1461,9 +1571,9 @@ function rAllSubjects(r, eT, lvl, br, dateFilterS){
       let cc = clsComp[c];
       return (cc && cc.n >= 2) ? `<td class="text-center">${_subjAllFmtD(cc.sum / cc.n)}</td>` : '<td class="text-center">—</td>';
     }).join('');
-    compRow = `<tr class="avg-row"><td>Bileşik Fark (ort. d)</td>${cells}${multi ? '<td class="text-center">—</td>' : ''}</tr>`;
+    compRow = `<tr class="avg-row"><td>Bileşik Fark (ort. g)</td>${cells}${multi ? '<td class="text-center">—</td>' : ''}</tr>`;
   }
-  let noteHtml = `<div class="text-muted small mt-2">Hücre değeri sınıfın o dersteki ortalama netidir; parantez içi kayıt sayısıdır. ${multi ? `Hücre rengi, sınıfın aynı dersteki diğer sınıflardan standart farkını gösterir (Cohen's d; yeşil = yüksek, kırmızı = düşük; |d| ≥ 0.2 küçük, ≥ 0.5 orta, ≥ 0.8 büyük fark; renk ve d için sınıfta ve diğer sınıflarda en az ${_SUBJ_ALL_MIN_N} öğrenci gerekir). Bileşik fark, sınıfın derslerdeki d değerlerinin ortalamasıdır. ` : ''}Derslerin soru sayıları farklı olabileceğinden ham netler satırlar arasında değil, aynı satırdaki sınıflar arasında karşılaştırılmalıdır.</div>`;
+  let noteHtml = `<div class="text-muted small mt-2">Hücre değeri sınıfın o dersteki ortalama netidir; parantez içi kayıt sayısıdır. ${multi ? `Hücre rengi, sınıfın aynı dersteki diğer sınıflardan standart farkını gösterir (Hedges g; yeşil = yüksek, kırmızı = düşük; |d| ≥ 0.2 küçük, ≥ 0.5 orta, ≥ 0.8 büyük fark; renk ve g için sınıfta ve diğer sınıflarda en az ${_SUBJ_ALL_MIN_N} öğrenci gerekir). Bileşik fark, sınıfın derslerdeki g değerlerinin ortalamasıdır. ` : ''}Derslerin soru sayıları farklı olabileceğinden ham netler satırlar arasında değil, aynı satırdaki sınıflar arasında karşılaştırılmalıdır.</div>`;
 
   let reportName = safeFileName(`Tum_Dersler_Analizi`);
   r.innerHTML = `
@@ -1825,7 +1935,7 @@ function rAnl(){
           <div class="sec-icon"><i class="fas fa-star"></i></div>
           <div class="sec-body"><div class="sec-label">${escapeHtml(ls)}</div>
           <div class="sec-value">${fmtV(curVal)}</div>
-          <div class="sec-sub">${curExam.date}${_pubLbl}</div>
+          <div class="sec-sub">${curExamDateSafe}${_pubLblSafe}</div>
           </div></div></div>`;
 
         let metricDeltaItem = _statItem(
@@ -2004,12 +2114,16 @@ function rAnl(){
       let parts = getClassParts(x.studentClass); if(!parts.grade || !parts.branch) return false;
       if(l&&l!==parts.grade) return false;
       if(b&&b!==parts.branch) return false;
+      if(!_hasMetric(x, sb)) return false; // dersi içermeyen kayıt 0 net sayılmaz
       return true;
     }), d={};
     ex.forEach(e=>{ 
       if(dateFilter && e.date!==dateFilter) return;
       (d[e.date]=d[e.date]||[]).push(e); 
     });
+    // Tek sınav seçiliyse ortalamalar ve karşılaştırmalar yalnızca o sınavın kayıtlarından hesaplanır
+    // (ex tüm tarihleri içerir; yalnızca d tarihe göre süzülüyordu → "Ortalama" satırları tüm sınavların ortalamasını gösteriyordu).
+    let exSel = dateFilter ? ex.filter(x => x.date === dateFilter) : ex;
     let sd=Object.keys(d).sort(srt),cs=new Set(),tr=[], ls = sb === 'score' ? 'Puan' : (sb === 'totalNet' || !sb ? 'Toplam Net' : toTitleCase(sb.replace('s_','')) + ' Neti');
 
     let cIdx = 1;
@@ -2022,11 +2136,11 @@ function rAnl(){
       }); 
     });
 
-    let lvlForAvg = l || (ex.length > 0 ? getGrade(ex[0].studentClass) : ''), exForAvg = lvlForAvg ? ex.filter(x => getGrade(x.studentClass) === lvlForAvg) : ex;
+    let lvlForAvg = l || (exSel.length > 0 ? getGrade(exSel[0].studentClass) : ''), exForAvg = lvlForAvg ? exSel.filter(x => getGrade(x.studentClass) === lvlForAvg) : exSel;
     let allVals = exForAvg.map(x=>{ if(sb==='score')return x.score; if(sb==='totalNet'||!sb)return x.totalNet; return x.subs[toTitleCase(sb.replace('s_',''))]?.net||0; });
     let classAvgRows = '', sortedClasses = [...cs].sort();
     sortedClasses.forEach(clsName => {
-      let clsExams = ex.filter(x => x.studentClass === clsName), clsVals = clsExams.map(x => { if(sb==='score')return x.score; if(sb==='totalNet'||!sb)return x.totalNet; return x.subs[toTitleCase(sb.replace('s_',''))]?.net||0; });
+      let clsExams = exSel.filter(x => x.studentClass === clsName), clsVals = clsExams.map(x => { if(sb==='score')return x.score; if(sb==='totalNet'||!sb)return x.totalNet; return x.subs[toTitleCase(sb.replace('s_',''))]?.net||0; });
       if(clsVals.length > 0) { let clsAvg = (clsVals.reduce((a,b)=>a+b,0)/clsVals.length).toFixed(2); classAvgRows += `<tr class="avg-row"><td colspan="4" class="avg-label">${escapeHtml(clsName)} Ortalama</td><td>${clsAvg}</td></tr>`; }
     });
     
@@ -2038,39 +2152,11 @@ function rAnl(){
     let cohenHtml = '';
     let showCompCards = false;
     if(sortedClasses.length > 0 && allVals.length > 0) {
-      let topCls = sortedClasses.map(clsName => { let cv = ex.filter(x=>x.studentClass===clsName).map(x=>{ if(sb==='score')return x.score; if(sb==='totalNet'||!sb)return x.totalNet; return x.subs[toTitleCase(sb.replace('s_',''))]?.net||0; }); return {cls: clsName, avg: cv.length?(cv.reduce((a,b)=>a+b,0)/cv.length):0, count: cv.length}; }).sort((a,b)=>b.avg-a.avg);
+      let topCls = sortedClasses.map(clsName => { let cv = exSel.filter(x=>x.studentClass===clsName).map(x=>{ if(sb==='score')return x.score; if(sb==='totalNet'||!sb)return x.totalNet; return x.subs[toTitleCase(sb.replace('s_',''))]?.net||0; }); return {cls: clsName, avg: cv.length?(cv.reduce((a,b)=>a+b,0)/cv.length):0, count: cv.length}; }).sort((a,b)=>b.avg-a.avg);
       let best = topCls[0], worst = topCls[topCls.length-1], genAvgPerf = allVals.reduce((a,b)=>a+b,0)/allVals.length, aboveAvg = topCls.filter(x=>x.avg >= genAvgPerf).length;
       showCompCards = topCls.length > 1;
       
-      let eligibleStus = DB.s.filter(s => { let m = s.class.match(/^(\d+)([a-zA-ZğüşıöçĞÜŞİÖÇ]+)$/); if(!m) return false; if((l&&l!==m[1])||(b&&b!==m[2].toLocaleUpperCase('tr-TR'))) return false; return true; });
-      let examGradeMap = {}; 
-      Object.values(EXAM_META).forEach(m => {
-        if(m.examType !== eT) return;
-        if(dateFilter && m.date !== dateFilter) return;
-        let key = m.date + '||' + (m.publisher || '');
-        if(!examGradeMap[key]) examGradeMap[key] = { grades:new Set(), date:m.date, publisher:m.publisher||'' };
-        let gs = metaGrades(m).length ? metaGrades(m) : ['*'];
-        gs.forEach(g => examGradeMap[key].grades.add(g));
-      });
-      let attendedSetByStu = {};
-      DB.e.forEach(e => {
-        if(e.examType !== eT || e.abs) return;
-        if(dateFilter && e.date !== dateFilter) return;
-        let k = e.date + '||' + (e.publisher || '');
-        if(!attendedSetByStu[e.studentNo]) attendedSetByStu[e.studentNo] = new Set();
-        attendedSetByStu[e.studentNo].add(k);
-      });
-      let baseCount = 0, attendedCount = 0;
-      eligibleStus.forEach(stu => {
-        let g = getGrade(stu.class);
-        let stuAttended = attendedSetByStu[stu.no] || new Set();
-        Object.entries(examGradeMap).forEach(([key, info]) => {
-          if(!(info.grades.has('*') || info.grades.has(g))) return;
-          baseCount++;
-          if(stuAttended.has(key)) attendedCount++;
-        });
-      });
-      let partRate = baseCount > 0 ? Math.max(0, Math.min(100, Math.round((attendedCount / baseCount) * 100))) : 0;
+      let { baseCount, attendedCount, rate: partRate } = _calcParticipation({ examType: eT, lvl: l, br: b, date: dateFilter });
 
       // Cohen's d — en iyi şube vs en düşük şube (yalnızca >=2 şube + ≥2 sınav modunda).
       // Ham kayıt yerine öğrenci başına ortalama kullanılır:
@@ -2083,7 +2169,7 @@ function rAnl(){
         // Her şube için öğrenci başına ortalama
         let _stuAvgsForCls = (cls) => {
           let map = {};
-          ex.filter(x=>x.studentClass===cls).forEach(x=>{
+          exSel.filter(x=>x.studentClass===cls).forEach(x=>{
             let v; if(sb==='score') v=x.score; else if(sb==='totalNet'||!sb) v=x.totalNet; else v=x.subs[toTitleCase(sb.replace('s_',''))]?.net||0;
             if(!map[x.studentNo]) map[x.studentNo]=[];
             map[x.studentNo].push(v);
@@ -2113,12 +2199,12 @@ function rAnl(){
             let dColorMain = Math.abs(dMain) >= 0.8 ? '#dc3545' : (Math.abs(dMain) >= 0.5 ? '#fd7e14' : (Math.abs(dMain) >= 0.2 ? '#ffc107' : '#28a745'));
             let compHtml = compLines.length > 0
               ? `<div class="comparison-list">${compLines.join('')}</div>`
-              : `<div class="sec-sub">${labMain} fark — ${best.cls} vs ${worst.cls}</div>`;
+              : `<div class="sec-sub">${labMain} fark — ${escapeHtml(best.cls)} vs ${escapeHtml(worst.cls)}</div>`;
             cohenHtml = _trendStatItem(
-              "Etki Büyüklüğü (Cohen's d)",
-              `<span style="color:${dColorMain};">d = ${dMain.toFixed(2)}</span>`,
+              "Etki Büyüklüğü (Hedges g)",
+              `<span style="color:${dColorMain};">g = ${dMain.toFixed(2)}</span>`,
               `${escapeHtml(labMain)} · ${escapeHtml(best.cls)} vs ${escapeHtml(worst.cls)}`,
-              "Cohen's d: en güçlü şube ile karşılaştırılan şubeler arasındaki standartlaştırılmış ortalama farkı.",
+              "Hedges g: en güçlü şube ile karşılaştırılan şubeler arasındaki standartlaştırılmış ortalama farkı (küçük örneklem düzeltmeli Cohen d). En yüksek ortalamalı şube veriden seçildiği için fark olduğundan büyük görünebilir.",
               ''
             );
           }
@@ -2129,7 +2215,7 @@ function rAnl(){
       let singleExamSingleBranchHtml = '';
       if(dateFilter && !showCompCards && sortedClasses.length === 1) {
         let _brAvg = topCls[0].avg;
-        let _instValsForDate = (lvlForAvg ? DB.e.filter(x=>x.examType===eT&&!x.abs&&x.date===dateFilter&&getGrade(x.studentClass)===lvlForAvg) : DB.e.filter(x=>x.examType===eT&&!x.abs&&x.date===dateFilter))
+        let _instValsForDate = (lvlForAvg ? DB.e.filter(x=>x.examType===eT&&!x.abs&&x.date===dateFilter&&getGrade(x.studentClass)===lvlForAvg&&_hasMetric(x, sb)) : DB.e.filter(x=>x.examType===eT&&!x.abs&&x.date===dateFilter&&_hasMetric(x, sb)))
           .map(x=>{ if(sb==='score')return x.score; if(sb==='totalNet'||!sb)return x.totalNet; return x.subs[toTitleCase(sb.replace('s_',''))]?.net||0; });
         let _instAvg = _instValsForDate.length ? _instValsForDate.reduce((a,b)=>a+b,0)/_instValsForDate.length : null;
         let _delta = (_instAvg!==null) ? (_brAvg - _instAvg) : null;
@@ -2153,8 +2239,8 @@ function rAnl(){
             <div class="col-12 col-md-4 class-info-col"><div class="sec-card h-100"><div class="sec-icon"><i class="fas fa-star"></i></div><div class="sec-body"><div class="sec-label">Ort. Üstü Sınıf</div><div class="sec-value">${aboveAvg} / ${topCls.length}</div></div></div></div>
           </div>
           <div class="row g-2 sec-cards-row class-info-cards class-compare-cards mb-3">
-            <div class="col-12 col-md-6 class-info-col"><div class="sec-card sec-pos h-100"><div class="sec-icon"><i class="fas fa-trophy"></i></div><div class="sec-body"><div class="sec-label">En İyi Sınıf</div><div class="sec-value">${best.cls}</div><div class="sec-sub">Ort: ${best.avg.toFixed(2)}</div></div></div></div>
-            <div class="col-12 col-md-6 class-info-col"><div class="sec-card sec-neg h-100"><div class="sec-icon"><i class="fas fa-exclamation-circle"></i></div><div class="sec-body"><div class="sec-label">En Düşük Sınıf</div><div class="sec-value">${worst.cls}</div><div class="sec-sub">Ort: ${worst.avg.toFixed(2)}</div></div></div></div>
+            <div class="col-12 col-md-6 class-info-col"><div class="sec-card sec-pos h-100"><div class="sec-icon"><i class="fas fa-trophy"></i></div><div class="sec-body"><div class="sec-label">En İyi Sınıf</div><div class="sec-value">${escapeHtml(best.cls)}</div><div class="sec-sub">Ort: ${best.avg.toFixed(2)}</div></div></div></div>
+            <div class="col-12 col-md-6 class-info-col"><div class="sec-card sec-neg h-100"><div class="sec-icon"><i class="fas fa-exclamation-circle"></i></div><div class="sec-body"><div class="sec-label">En Düşük Sınıf</div><div class="sec-value">${escapeHtml(worst.cls)}</div><div class="sec-sub">Ort: ${worst.avg.toFixed(2)}</div></div></div></div>
           </div>`;
       } else {
         // Tek şube seçili ama singleExam değil
@@ -2194,41 +2280,59 @@ function rAnl(){
       let dn = (b.avg||0) - (a.avg||0); if(dn !== 0) return dn;
       return String(a.name||'').localeCompare(String(b.name||''),'tr',{sensitivity:'base'});
     });
-    let top5Stu = stuRankArr.slice(0, 5), bottom5Stu = stuRankArr.slice(-5).reverse();
+    // Çok sınav seçiliyse sıralamaya yalnızca sınavların en az yarısına giren öğrenciler dahil edilir (tek sınava girenin şanslı sonucu
+    // çok sınava girenin ortalamasıyla aynı kefeye konmaz); hiç uygun öğrenci yoksa tümü kullanılır.
+    let _rankMinCnt = sd.length >= 2 ? Math.ceil(sd.length / 2) : 1;
+    let _rankPool = stuRankArr.filter(s => s.cnt >= _rankMinCnt);
+    if(!_rankPool.length) _rankPool = stuRankArr;
+    let top5Stu = _rankPool.slice(0, 5), bottom5Stu = _rankPool.slice(-5).reverse();
     let stuTop5Html = top5Stu.length ? top5Stu.map((s,i) => `<tr><td>${i+1}</td><td>${escapeHtml(s.name)}</td><td>${escapeHtml(s.cls)}</td><td><strong>${s.avg.toFixed(2)}</strong></td></tr>`).join('') : '<tr><td colspan="4" class="text-center text-muted">Veri yok</td></tr>';
     let stuBottom5Html = bottom5Stu.length ? bottom5Stu.map((s,i) => `<tr><td>${i + 1}</td><td>${escapeHtml(s.name)}</td><td>${escapeHtml(s.cls)}</td><td><strong>${s.avg.toFixed(2)}</strong></td></tr>`).join('') : '<tr><td colspan="4" class="text-center text-muted">Veri yok</td></tr>';
     
     let top5Bottom5Html = stuRankArr.length > 0 ? `<div class="row g-2 class-rank-tables mt-3">
       <div class="col-lg-6"><div class="card shadow-sm avoid-break"><div class="card-header sa-list-header sa-list-success"><h3 class="card-title m-0"><i class="fas fa-trophy me-1"></i> En İyi 5 Öğrenci</h3></div><div class="card-body p-0 table-responsive"><table class="table table-sm table-striped m-0 table-compact"><thead><tr><th>#</th><th>Ad Soyad</th><th>Sınıf</th><th>Ort. (${escapeHtml(ls)})</th></tr></thead><tbody>${stuTop5Html}</tbody></table></div></div></div>
       <div class="col-lg-6"><div class="card shadow-sm avoid-break"><div class="card-header sa-list-header sa-list-danger"><h3 class="card-title m-0"><i class="fas fa-exclamation-circle me-1"></i> En Düşük 5 Öğrenci</h3></div><div class="card-body p-0 table-responsive"><table class="table table-sm table-striped m-0 table-compact"><thead><tr><th>#</th><th>Ad Soyad</th><th>Sınıf</th><th>Ort. (${escapeHtml(ls)})</th></tr></thead><tbody>${stuBottom5Html}</tbody></table></div></div></div>
-    </div>` : '';
+    </div>${_rankMinCnt > 1 ? `<div class="text-muted small mt-1">Sıralamaya, seçili sınavların en az yarısına (en az ${_rankMinCnt} sınav) giren öğrenciler dahildir.</div>` : ''}` : '';
 
     // 1-D: Tek şube - ilerleme/gerileme kartları (showCompCards=false olsa bile gösterilir)
     let progressRegressionHtml = '';
     if(!showCompCards && sd.length >= 2) {
-      // Her öğrencinin sınav serisi üzerinden regresyon eğimi hesapla
+      // Her öğrencinin sınav serisi üzerinden regresyon eğimi hesapla.
+      // Değerler sınav içi standartlaştırılır (z): sınavlar arası zorluk/ölçek farkı eğimi bozmasın; seçim en az 4 sınavlık
+      // serilerle sınırlıdır (2-3 noktalı eğimler çok gürültülüdür, binlerce gürültülü eğimin uç değeri seçim yanlılığı yaratır).
+      let _getV = e => {
+        if(sb==='score') return e.score;
+        if(sb==='totalNet'||!sb) return e.totalNet;
+        let _sk=toTitleCase(sb.replace('s_',''));
+        return (e.subs&&e.subs[_sk]!==undefined)?e.subs[_sk].net:null;
+      };
+      let _dateStat = {};
+      sd.forEach(dt => {
+        let vs = (d[dt]||[]).map(_getV).filter(v => v!==null && v!==undefined && isFinite(v));
+        let sdv = _statStd(vs);
+        _dateStat[dt] = (vs.length >= 5 && sdv > 0) ? { m: vs.reduce((a,b)=>a+b,0)/vs.length, sd: sdv } : null;
+      });
       let _stuSeriesMap = {};
       sd.forEach(dt => {
         (d[dt]||[]).forEach(e => {
           let _stu = getStuMap().get(e.studentNo); if(!_stu) return;
-          if(!_stuSeriesMap[e.studentNo]) _stuSeriesMap[e.studentNo] = { name: _stu.name, cls: _stu.class, scores: [] };
-          let _v;
-          if(sb==='score') _v=e.score;
-          else if(sb==='totalNet'||!sb) _v=e.totalNet;
-          else { let _sk=toTitleCase(sb.replace('s_','')); _v=(e.subs&&e.subs[_sk]!==undefined)?e.subs[_sk].net:null; }
-          if(_v!==null && _v!==undefined) _stuSeriesMap[e.studentNo].scores.push(_v);
+          if(!_stuSeriesMap[e.studentNo]) _stuSeriesMap[e.studentNo] = { name: _stu.name, cls: _stu.class, scores: [], bad: false };
+          let _v = _getV(e), _st = _dateStat[dt];
+          if(_v===null || _v===undefined) return;
+          if(!_st){ _stuSeriesMap[e.studentNo].bad = true; return; }
+          _stuSeriesMap[e.studentNo].scores.push((_v - _st.m) / _st.sd);
         });
       });
       let _slopeArr = Object.entries(_stuSeriesMap)
-        .filter(([,s]) => s.scores.length >= 2)
+        .filter(([,s]) => !s.bad && s.scores.length >= _PROGRESS_MIN_N)
         .map(([no2,s]) => ({ no: no2, name: s.name, cls: s.cls, slope: linRegSlope(s.scores), cnt: s.scores.length }));
       _slopeArr.sort((a,b) => b.slope - a.slope);
       let _bestProg  = _slopeArr.length > 0 && _slopeArr[0].slope > 0 ? _slopeArr[0] : null;
       let _worstProg = _slopeArr.length > 0 && _slopeArr[_slopeArr.length-1].slope < 0 ? _slopeArr[_slopeArr.length-1] : null;
       if(_bestProg || _worstProg) {
         progressRegressionHtml = `<div class="row g-2 sec-cards-row class-info-cards class-progress-cards mb-3">
-          ${_bestProg ? `<div class="col-12 col-md-6 class-info-col"><div class="sec-card sec-pos h-100"><div class="sec-icon"><i class="fas fa-rocket"></i></div><div class="sec-body"><div class="sec-label">En Fazla İlerleme</div><div class="sec-value sec-value-compact">${escapeHtml(_bestProg.name)} <small>(${escapeHtml(_bestProg.cls)})</small></div><div class="sec-sub">Sınav başına +${_bestProg.slope.toFixed(2)} · ${_bestProg.cnt} sınav</div></div></div></div>` : ''}
-          ${_worstProg ? `<div class="col-12 col-md-6 class-info-col"><div class="sec-card sec-neg h-100"><div class="sec-icon"><i class="fas fa-level-down-alt"></i></div><div class="sec-body"><div class="sec-label">En Fazla Gerileme</div><div class="sec-value sec-value-compact">${escapeHtml(_worstProg.name)} <small>(${escapeHtml(_worstProg.cls)})</small></div><div class="sec-sub">Sınav başına ${_worstProg.slope.toFixed(2)} · ${_worstProg.cnt} sınav</div></div></div></div>` : ''}
+          ${_bestProg ? `<div class="col-12 col-md-6 class-info-col"><div class="sec-card sec-pos h-100"><div class="sec-icon"><i class="fas fa-rocket"></i></div><div class="sec-body"><div class="sec-label">En Fazla İlerleme</div><div class="sec-value sec-value-compact">${escapeHtml(_bestProg.name)} <small>(${escapeHtml(_bestProg.cls)})</small></div><div class="sec-sub">Sınav başına +${_bestProg.slope.toFixed(2)} SS · ${_bestProg.cnt} sınav</div></div></div></div>` : ''}
+          ${_worstProg ? `<div class="col-12 col-md-6 class-info-col"><div class="sec-card sec-neg h-100"><div class="sec-icon"><i class="fas fa-level-down-alt"></i></div><div class="sec-body"><div class="sec-label">En Fazla Gerileme</div><div class="sec-value sec-value-compact">${escapeHtml(_worstProg.name)} <small>(${escapeHtml(_worstProg.cls)})</small></div><div class="sec-sub">Sınav başına ${_worstProg.slope.toFixed(2)} SS · ${_worstProg.cnt} sınav</div></div></div></div>` : ''}
         </div>`;
       }
     }
@@ -2243,15 +2347,18 @@ function rAnl(){
       if(dateAvgSeries.length >= 2) {
         let clsTSlope    = linRegSlope(dateAvgSeries);
         let clsTTotal    = clsTSlope * (dateAvgSeries.length - 1);
-        let clsTImproving = clsTSlope > 0, clsTWorsening = clsTSlope < 0;
+        let clsFit = _trendFit(dateAvgSeries); // eğimin anlamlılığı (t-testi); anlamlı değilse yön iddia edilmez
+        let clsTImproving = clsFit.significant && clsTSlope > 0, clsTWorsening = clsFit.significant && clsTSlope < 0;
         let clsTClass   = clsTImproving ? 'trend-up' : (clsTWorsening ? 'trend-down' : 'trend-stable');
-        let clsTIcon    = clsTImproving ? 'fa-arrow-up' : (clsTWorsening ? 'fa-arrow-down' : 'fa-minus');
-        let clsTText    = clsTImproving ? 'Yükseliş' : (clsTWorsening ? 'Düşüş' : 'Sabit');
+        let clsTIcon    = clsTImproving ? 'fa-arrow-up' : (clsTWorsening ? 'fa-arrow-down' : 'fa-question-circle');
+        let clsTText    = clsTImproving ? 'Yükseliş' : (clsTWorsening ? 'Düşüş' : (clsFit.n < _TREND_SIG_MIN_N ? 'Veri yetersiz' : 'Belirgin trend yok'));
         let clsTColor   = clsTImproving ? '#28a745' : (clsTWorsening ? '#dc3545' : '#6c757d');
         let clsTSign    = clsTTotal > 0 ? '+' : '';
         let clsSSign    = clsTSlope > 0 ? '+' : '';
 
-        let ssRawVals = sd.flatMap(dt => (d[dt]||[]).map(x => { if(sb==='score') return x.score; if(sb==='totalNet'||!sb) return x.totalNet; return x.subs[toTitleCase(sb.replace('s_',''))]?.net||0; }));
+        // Dağılım: öğrenci başına ortalama değerler üzerinden (tüm sınavların ham kayıtlarını tek havuzda almak, sınavlar arası
+        // zorluk farkını da "heterojenlik" sayıyordu). Tek sınavda bu, kayıtların kendisidir.
+        let ssRawVals = _perStudentMeans(sd.flatMap(dt => d[dt]||[]), x => { if(sb==='score') return x.score; if(sb==='totalNet'||!sb) return x.totalNet; return x.subs[toTitleCase(sb.replace('s_',''))]?.net||0; });
         // Örneklem standart sapması (n-1 paydası) — grup heterojenliği için doğru ölçü.
         // Popülasyon σ (n paydası) örneklem varyansını sistematik olarak küçümser.
         let ssMean = ssRawVals.length ? ssRawVals.reduce((a,b)=>a+b,0)/ssRawVals.length : 0;
@@ -2263,11 +2370,10 @@ function rAnl(){
         let mmDiff = _clsAvgsForMM.length > 1 ? Math.max(..._clsAvgsForMM) - Math.min(..._clsAvgsForMM) : null;
 
         let _consistencyLabelC = (function(){ let cv = ssMean!==0 ? Math.abs(ssVal/ssMean)*100 : 0; return cv<10?'Çok homojen':(cv<20?'Homojen':(cv<35?'Heterojen':'Çok heterojen')); })();
-        // R² — sınıf trend güvenilirliği (adaptif eşik)
-        let clsTR2    = linRegR2(dateAvgSeries);
-        let clsTR2Thr = _adaptiveR2(dateAvgSeries.length);
-        let clsTR2Lab = clsTR2 >= 0.65 ? 'Güçlü trend' : (clsTR2 >= clsTR2Thr ? 'Orta trend' : 'Zayıf trend');
-        let clsTR2Col = clsTR2 >= 0.65 ? '#28a745'     : (clsTR2 >= clsTR2Thr ? '#fd7e14'   : '#dc3545');
+        // R² ve anlamlılık — sınıf trend güvenilirliği (eğim t-testi)
+        let clsTR2    = clsFit.r2;
+        let clsTR2Lab = !clsFit.significant ? (clsFit.n < _TREND_SIG_MIN_N ? 'Veri yetersiz' : 'Anlamlı değil') : (clsTR2 >= 0.65 ? 'Güçlü trend' : 'Anlamlı trend');
+        let clsTR2Col = !clsFit.significant ? '#dc3545' : (clsTR2 >= 0.65 ? '#28a745' : '#fd7e14');
 
         clsTrendHtml = _trendStatBlock([
           _trendStatItem(
@@ -2302,7 +2408,7 @@ function rAnl(){
             'Dağılım / Homojenlik',
             `<span class="trend-tone-purple">±${ssVal.toFixed(2)}</span>`,
             _consistencyLabelC,
-            'Öğrencilerin ortalama etrafındaki dağılımı (örneklem standart sapması, n-1). Düşük = homojen sınıf.',
+            'Öğrenci başına ortalamaların örneklem standart sapması (n-1). Düşük = homojen sınıf. Çok sınav seçiliyse her öğrenci tek gözlem sayılır.',
             ''
           ),
           mmDiff !== null ? _trendStatItem(
@@ -2316,7 +2422,7 @@ function rAnl(){
             'Trend Güvenilirliği (R²)',
             `<span style="--metric-color:${clsTR2Col}; color:var(--metric-color);">${clsTR2.toFixed(2)}</span>`,
             clsTR2Lab,
-            `R² (determinasyon katsayısı): 1'e yakınsa trend veriye iyi uyuyor, 0'a yakınsa gürültülü. Adaptif eşik: n=${dateAvgSeries.length} sınav için min R²=${clsTR2Thr.toFixed(2)}.`,
+            `R² = trendin açıkladığı varyans oranı (1'e yakın = iyi uyum). Anlamlılık eğimin t-testiyle belirlenir (en az ${_TREND_SIG_MIN_N} sınav ve p≤0.10 gerekir; bu seride ${_fmtP(clsFit.p) || 'p hesaplanamadı'}). Not: sınıf ortalaması her sınavda farklı öğrenci kümesine ve sınav zorluğuna bağlıdır.`,
             ''
           ),
           cohenHtml
@@ -2358,15 +2464,15 @@ function rAnl(){
       let totalExamsOfType = new Set(Object.values(EXAM_META).filter(m => m.examType === eT).map(m => m.date)).size;
       if(clsBPArea && totalExamsOfType >= 10) {
         let classDataMap = {};
-        let lvlForBP = l || (ex.length > 0 ? getGrade(ex[0].studentClass) : '');
-        let allGradeEx = DB.e.filter(x => x.examType===eT && !x.abs && (lvlForBP ? getGrade(x.studentClass)===lvlForBP : true));
+        let lvlForBP = l || (exSel.length > 0 ? getGrade(exSel[0].studentClass) : '');
+        let allGradeEx = DB.e.filter(x => x.examType===eT && !x.abs && (lvlForBP ? getGrade(x.studentClass)===lvlForBP : true) && (!dateFilter || x.date === dateFilter));
         let allGradeValsForBP = allGradeEx.map(x => {
           if(sb==='score') return x.score;
           if(sb==='totalNet'||!sb) return x.totalNet;
           return x.subs[toTitleCase(sb.replace('s_',''))]?.net ?? null;
         }).filter(v => v !== null);
         [...cs].sort().forEach(clsName => {
-          let vals = ex.filter(x => x.studentClass === clsName).map(x => {
+          let vals = exSel.filter(x => x.studentClass === clsName).map(x => {
             if(sb==='score') return x.score;
             if(sb==='totalNet'||!sb) return x.totalNet;
             return x.subs[toTitleCase(sb.replace('s_',''))]?.net ?? null;
@@ -2406,45 +2512,19 @@ function rAnl(){
       let dn = (b.avg||0) - (a.avg||0); if(dn !== 0) return dn;
       return String(a.name||'').localeCompare(String(b.name||''),'tr',{sensitivity:'base'});
     });
-    let top5 = stuArr.slice(0, 5), bottom5 = stuArr.slice(-5).reverse();
+    // Çok sınav seçiliyse sıralamaya yalnızca sınavların en az yarısına giren öğrenciler dahil edilir; uygun öğrenci yoksa tümü kullanılır
+    let _sjDateCnt = new Set(ex.map(e => e.date)).size;
+    let _sjMinCnt = _sjDateCnt >= 2 ? Math.ceil(_sjDateCnt / 2) : 1;
+    let _sjPool = stuArr.filter(s => s.count >= _sjMinCnt);
+    if(!_sjPool.length) _sjPool = stuArr;
+    let top5 = _sjPool.slice(0, 5), bottom5 = _sjPool.slice(-5).reverse();
     let clsArr = Object.entries(classStats).map(([cls, data]) => ({ cls, avg: data.totalNet / data.count, count: data.count })).sort((a,b) => b.avg - a.avg);
     
-    let bestStudent = stuArr.length > 0 ? stuArr[0] : null;
-    let worstStudent = stuArr.length > 0 ? stuArr[stuArr.length - 1] : null;
+    let bestStudent = _sjPool.length > 0 ? _sjPool[0] : null;
+    let worstStudent = _sjPool.length > 0 ? _sjPool[_sjPool.length - 1] : null;
     let genAvg = ex.reduce((a,e) => a + e.subs[toTitleCase(subj)].net, 0) / ex.length, lvlStr = (lvl ? `${lvl}. Sınıflar` : 'Tüm Sınıflar') + (br ? ` / ${br} Şubesi` : '');
     
-    let eligibleStusS = DB.s.filter(s => { let m = s.class.match(/^(\d+)([a-zA-ZğüşıöçĞÜŞİÖÇ]+)$/); if(!m) return false; if(lvl && m[1] !== lvl) return false; if(br && m[2].toLocaleUpperCase('tr-TR') !== br) return false; return true; });
-    let subjLower = subj.toLocaleLowerCase('tr-TR');
-    let subjExamGradeMap = {};
-    Object.values(EXAM_META).forEach(m => {
-      if(m.examType !== eT) return;
-      if(dateFilterS && m.date !== dateFilterS) return;
-      if(!m.subjects || !m.subjects.map(s=>s.toLocaleLowerCase('tr-TR')).includes(subjLower)) return;
-      let key = m.date + '||' + (m.publisher || '');
-      if(!subjExamGradeMap[key]) subjExamGradeMap[key] = { grades:new Set() };
-      let gs = metaGrades(m).length ? metaGrades(m) : ['*'];
-      gs.forEach(g => subjExamGradeMap[key].grades.add(g));
-    });
-    let subjAttendedSetByStu = {};
-    DB.e.forEach(e => {
-      if(e.examType !== eT || e.abs) return;
-      if(dateFilterS && e.date !== dateFilterS) return;
-      if(!e.subs || !e.subs[toTitleCase(subj)]) return;
-      let k = e.date + '||' + (e.publisher || '');
-      if(!subjAttendedSetByStu[e.studentNo]) subjAttendedSetByStu[e.studentNo] = new Set();
-      subjAttendedSetByStu[e.studentNo].add(k);
-    });
-    let baseCountS = 0, attendedCountS = 0;
-    eligibleStusS.forEach(stu => {
-      let g = getGrade(stu.class);
-      let stuAtt = subjAttendedSetByStu[stu.no] || new Set();
-      Object.entries(subjExamGradeMap).forEach(([key, info]) => {
-        if(!(info.grades.has('*') || info.grades.has(g))) return;
-        baseCountS++;
-        if(stuAtt.has(key)) attendedCountS++;
-      });
-    });
-    let partRateS = baseCountS > 0 ? Math.max(0, Math.min(100, Math.round((attendedCountS / baseCountS) * 100))) : 0;
+    let { baseCount: baseCountS, attendedCount: attendedCountS, rate: partRateS } = _calcParticipation({ examType: eT, lvl, br, date: dateFilterS, subject: subj });
 
     let subjTrendHtml = '';
     if(dates.length >= _TREND_MIN_N) {
@@ -2456,15 +2536,18 @@ function rAnl(){
       if(subjDateAvgSeries.length >= _TREND_MIN_N) {
         let subjSlope    = linRegSlope(subjDateAvgSeries);
         let subjTotal    = subjSlope * (subjDateAvgSeries.length - 1);
-        let subjImproving = subjSlope > 0, subjWorsening = subjSlope < 0;
+        let subjFit = _trendFit(subjDateAvgSeries); // eğimin anlamlılığı (t-testi); anlamlı değilse yön iddia edilmez
+        let subjImproving = subjFit.significant && subjSlope > 0, subjWorsening = subjFit.significant && subjSlope < 0;
         let subjTClass  = subjImproving ? 'trend-up' : (subjWorsening ? 'trend-down' : 'trend-stable');
-        let subjTIcon   = subjImproving ? 'fa-arrow-up' : (subjWorsening ? 'fa-arrow-down' : 'fa-minus');
-        let subjTText   = subjImproving ? 'Yükseliş' : (subjWorsening ? 'Düşüş' : 'Sabit');
+        let subjTIcon   = subjImproving ? 'fa-arrow-up' : (subjWorsening ? 'fa-arrow-down' : 'fa-question-circle');
+        let subjTText   = subjImproving ? 'Yükseliş' : (subjWorsening ? 'Düşüş' : (subjFit.n < _TREND_SIG_MIN_N ? 'Veri yetersiz' : 'Belirgin trend yok'));
         let subjTColor  = subjImproving ? '#28a745' : (subjWorsening ? '#dc3545' : '#6c757d');
         let subjTSign   = subjTotal > 0 ? '+' : '';
         let subjSSign   = subjSlope > 0 ? '+' : '';
 
-        let subjAllNets = ex.map(e => e.subs[toTitleCase(subj)].net);
+        // Dağılım: öğrenci başına ortalama netler üzerinden (ham kayıtlar tek havuzda alınırsa sınavlar arası zorluk farkı da
+        // "heterojenlik" sayılır). Tek sınavda bu, kayıtların kendisidir.
+        let subjAllNets = _perStudentMeans(ex, e => e.subs[toTitleCase(subj)].net);
         let subjMean    = subjAllNets.reduce((a,b)=>a+b,0)/subjAllNets.length;
         // Örneklem standart sapması (n-1 paydası) — öğrenci heterojenliği için doğru ölçü.
         let subjSS      = _statStd(subjAllNets) || 0;
@@ -2472,11 +2555,10 @@ function rAnl(){
         let subjMMDiff  = subjClsAvgs.length > 1 ? Math.max(...subjClsAvgs) - Math.min(...subjClsAvgs) : null;
 
         let _consistencyLabelS = (function(){ let cv = subjMean!==0 ? Math.abs(subjSS/subjMean)*100 : 0; return cv<10?'Çok homojen':(cv<20?'Homojen':(cv<35?'Heterojen':'Çok heterojen')); })();
-        // R² — ders trend güvenilirliği (adaptif eşik)
-        let subjR2    = linRegR2(subjDateAvgSeries);
-        let subjR2Thr = _adaptiveR2(subjDateAvgSeries.length);
-        let subjR2Lab = subjR2 >= 0.65 ? 'Güçlü trend' : (subjR2 >= subjR2Thr ? 'Orta trend' : 'Zayıf trend');
-        let subjR2Col = subjR2 >= 0.65 ? '#28a745'     : (subjR2 >= subjR2Thr ? '#fd7e14'   : '#dc3545');
+        // R² ve anlamlılık — ders trend güvenilirliği (eğim t-testi)
+        let subjR2    = subjFit.r2;
+        let subjR2Lab = !subjFit.significant ? (subjFit.n < _TREND_SIG_MIN_N ? 'Veri yetersiz' : 'Anlamlı değil') : (subjR2 >= 0.65 ? 'Güçlü trend' : 'Anlamlı trend');
+        let subjR2Col = !subjFit.significant ? '#dc3545' : (subjR2 >= 0.65 ? '#28a745' : '#fd7e14');
 
         subjTrendHtml = _trendStatBlock([
           _trendStatItem(
@@ -2511,7 +2593,7 @@ function rAnl(){
             'Dağılım / Homojenlik',
             `<span class="trend-tone-purple">±${subjSS.toFixed(2)}</span>`,
             _consistencyLabelS,
-            'Öğrenci netlerinin ortalama etrafındaki dağılımı (örneklem standart sapması, n-1)',
+            'Öğrenci başına ortalama netlerin örneklem standart sapması (n-1). Çok sınav seçiliyse her öğrenci tek gözlem sayılır.',
             ''
           ),
           subjMMDiff !== null ? _trendStatItem(
@@ -2525,7 +2607,7 @@ function rAnl(){
             'Trend Güvenilirliği (R²)',
             `<span style="--metric-color:${subjR2Col}; color:var(--metric-color);">${subjR2.toFixed(2)}</span>`,
             subjR2Lab,
-            `R² (determinasyon katsayısı): 1'e yakınsa ders trendi güçlü, 0'a yakınsa gürültülü. Adaptif eşik: n=${subjDateAvgSeries.length} sınav için min R²=${subjR2Thr.toFixed(2)}.`,
+            `R² = trendin açıkladığı varyans oranı (1'e yakın = iyi uyum). Anlamlılık eğimin t-testiyle belirlenir (en az ${_TREND_SIG_MIN_N} sınav ve p≤0.10 gerekir; bu seride ${_fmtP(subjFit.p) || 'p hesaplanamadı'}). Not: ders ortalaması her sınavda farklı öğrenci kümesine ve sınav zorluğuna bağlıdır.`,
             ''
           )
         ]);
@@ -2570,12 +2652,12 @@ function rAnl(){
           let subjDCol2 = Math.abs(subjD2) >= 0.8 ? '#dc3545' : (Math.abs(subjD2) >= 0.5 ? '#fd7e14' : (Math.abs(subjD2) >= 0.2 ? '#ffc107' : '#28a745'));
           let subjCompHtml = subjCompLines.length > 0
             ? `<div class="comparison-list">${subjCompLines.join('')}</div>`
-            : `<div class="sec-sub">${subjDLab2} fark — ${subjBestClsN} vs ${subjWorstClsN2}</div>`;
+            : `<div class="sec-sub">${subjDLab2} fark — ${escapeHtml(subjBestClsN)} vs ${escapeHtml(subjWorstClsN2)}</div>`;
           subjStatsHtml = _trendStatItem(
-            "Etki Büyüklüğü (Cohen's d)",
-            `<span style="color:${subjDCol2};">d = ${subjD2.toFixed(2)}</span>`,
+            "Etki Büyüklüğü (Hedges g)",
+            `<span style="color:${subjDCol2};">g = ${subjD2.toFixed(2)}</span>`,
             `${escapeHtml(subjDLab2)} · ${escapeHtml(subjBestClsN)} vs ${escapeHtml(subjWorstClsN2)}`,
-            "Cohen's d: en güçlü sınıf ile karşılaştırılan sınıflar arasındaki standartlaştırılmış ortalama farkı.",
+            "Hedges g: en güçlü sınıf ile karşılaştırılan sınıflar arasındaki standartlaştırılmış ortalama farkı (küçük örneklem düzeltmeli Cohen d). En yüksek ortalamalı sınıf veriden seçildiği için fark olduğundan büyük görünebilir.",
             ''
           );
         }
@@ -2595,15 +2677,15 @@ function rAnl(){
     let subjRow2Html = '';
     if(!br && clsArr.length > 1) {
       subjRow2Html = `<div class="row g-2 sec-cards-row analysis-info-cards subject-info-cards mb-2">
-        <div class="col-12 col-md-4 col-lg flex-fill mb-2"><div class="sec-card sec-pos h-100"><div class="sec-icon"><i class="fas fa-school"></i></div><div class="sec-body"><div class="sec-label">En İyi Sınıf</div><div class="sec-value">${subjBestClsObj.cls}</div><div class="sec-sub">Ort: ${subjBestClsObj.avg.toFixed(2)} Net</div></div></div></div>
-        <div class="col-12 col-md-4 col-lg flex-fill mb-2"><div class="sec-card sec-neg h-100"><div class="sec-icon"><i class="fas fa-exclamation-circle"></i></div><div class="sec-body"><div class="sec-label">En Zayıf Sınıf</div><div class="sec-value">${subjWorstClsObj.cls}</div><div class="sec-sub">Ort: ${subjWorstClsObj.avg.toFixed(2)} Net</div></div></div></div>
+        <div class="col-12 col-md-4 col-lg flex-fill mb-2"><div class="sec-card sec-pos h-100"><div class="sec-icon"><i class="fas fa-school"></i></div><div class="sec-body"><div class="sec-label">En İyi Sınıf</div><div class="sec-value">${escapeHtml(subjBestClsObj.cls)}</div><div class="sec-sub">Ort: ${subjBestClsObj.avg.toFixed(2)} Net</div></div></div></div>
+        <div class="col-12 col-md-4 col-lg flex-fill mb-2"><div class="sec-card sec-neg h-100"><div class="sec-icon"><i class="fas fa-exclamation-circle"></i></div><div class="sec-body"><div class="sec-label">En Zayıf Sınıf</div><div class="sec-value">${escapeHtml(subjWorstClsObj.cls)}</div><div class="sec-sub">Ort: ${subjWorstClsObj.avg.toFixed(2)} Net</div></div></div></div>
       </div>`;
     }
 
     // Satır 3: En İyi Öğrenci | En Zayıf Öğrenci
     let subjRow3Html = `<div class="row g-2 sec-cards-row analysis-info-cards subject-info-cards mb-2">
-      <div class="col-12 col-md-6 col-lg flex-fill mb-2"><div class="sec-card sec-pos h-100"><div class="sec-icon"><i class="fas fa-trophy"></i></div><div class="sec-body"><div class="sec-label">En İyi Öğrenci</div><div class="sec-value sec-value-small">${bestStudent ? `${escapeHtml(bestStudent.name)} (${escapeHtml(bestStudent.cls)})` : 'Veri Yok'}</div><div class="sec-sub">${bestStudent ? `${bestStudent.avg.toFixed(2)} Net (Ort)` : ''}</div></div></div></div>
-      <div class="col-12 col-md-6 col-lg flex-fill mb-2"><div class="sec-card sec-neg h-100"><div class="sec-icon"><i class="fas fa-exclamation-triangle"></i></div><div class="sec-body"><div class="sec-label">En Zayıf Öğrenci</div><div class="sec-value sec-value-small">${worstStudent ? `${escapeHtml(worstStudent.name)} (${escapeHtml(worstStudent.cls)})` : 'Veri Yok'}</div><div class="sec-sub">${worstStudent ? `${worstStudent.avg.toFixed(2)} Net (Ort)` : ''}</div></div></div></div>
+      <div class="col-12 col-md-6 col-lg flex-fill mb-2"><div class="sec-card sec-pos h-100"><div class="sec-icon"><i class="fas fa-trophy"></i></div><div class="sec-body"><div class="sec-label">En İyi Öğrenci</div><div class="sec-value sec-value-small">${bestStudent ? `${escapeHtml(bestStudent.name)} (${escapeHtml(bestStudent.cls)})` : 'Veri Yok'}</div><div class="sec-sub">${bestStudent ? `${bestStudent.avg.toFixed(2)} Net (Ort.)` : ''}</div></div></div></div>
+      <div class="col-12 col-md-6 col-lg flex-fill mb-2"><div class="sec-card sec-neg h-100"><div class="sec-icon"><i class="fas fa-exclamation-triangle"></i></div><div class="sec-body"><div class="sec-label">En Zayıf Öğrenci</div><div class="sec-value sec-value-small">${worstStudent ? `${escapeHtml(worstStudent.name)} (${escapeHtml(worstStudent.cls)})` : 'Veri Yok'}</div><div class="sec-sub">${worstStudent ? `${worstStudent.avg.toFixed(2)} Net (Ort.)` : ''}</div></div></div></div>
     </div>`;
 
     let subjTitle = toTitleCase(subj);
@@ -2626,6 +2708,7 @@ function rAnl(){
           <div class="col-lg-4"><div class="card shadow-sm avoid-break"><div class="card-header sa-list-header sa-list-danger"><h3 class="card-title m-0"><i class="fas fa-exclamation-circle me-1"></i> En Düşük 5 Öğrenci</h3></div><div class="card-body p-0 table-responsive"><table class="table table-sm table-striped m-0 table-compact"><thead><tr><th>#</th><th>Ad Soyad</th><th>Sınıf</th><th>Ort.Net</th></tr></thead><tbody>${bottom5.map((s,i) => `<tr><td>${i+1}</td><td>${escapeHtml(s.name)}</td><td>${escapeHtml(s.cls)}</td><td><strong>${s.avg.toFixed(2)}</strong></td></tr>`).join('')}</tbody></table></div></div></div>
           <div class="col-lg-4"><div class="card shadow-sm avoid-break"><div class="card-header sa-list-header sa-list-info"><h3 class="card-title m-0"><i class="fas fa-school me-1"></i> Sınıf Ortalamaları</h3></div><div class="card-body p-0 table-responsive table-scroll-compact"><table class="table table-sm table-striped m-0 table-compact"><thead><tr><th>#</th><th>Sınıf</th><th>Ort.Net</th><th>Kayıt</th></tr></thead><tbody>${clsArr.map((c,i) => `<tr><td>${i+1}</td><td>${escapeHtml(c.cls)}</td><td><strong>${c.avg.toFixed(2)}</strong></td><td>${c.count}</td></tr>`).join('')}</tbody></table></div></div></div>
         </div>
+        ${_sjMinCnt > 1 ? `<div class="text-muted small mt-1">En iyi/en düşük öğrenci sıralamalarına, seçili sınavların en az yarısına (en az ${_sjMinCnt} sınav) giren öğrenciler dahildir.</div>` : ''}
         <div class="single-exam-chart-title chart-section-title"><i class="fas fa-chart-line"></i>${escapeHtml(subjTitle)} — Sınıf Ortalamaları Grafiği</div>
         <div class="chart-box chart-box-lg mt-3 avoid-break"><canvas id="cA"></canvas></div>
       </div>
@@ -2671,9 +2754,12 @@ function rAnl(){
     if(subSel === 'general_summary') {
         let _validNosGS = new Set(DB.s.map(s=>s.no));
         let ex = baseExams.filter(x => !x.abs && _validNosGS.has(x.studentNo)); if(ex.length === 0) { r.innerHTML = '<div class="alert alert-default-warning">Bu filtrelere uygun sınav sonucu bulunamadı.</div>'; return; }
-        let dates = [...new Set(ex.map(x=>x.date))].sort(srt), stuStats = {}; 
+        let dates = [...new Set(ex.map(x=>x.date))].sort(srt), stuStats = {}, gsDateStat = {}; 
         dates.forEach(d => {
             let exDt = ex.filter(x => x.date === d).sort((a,b) => { let dp=(b.score||0)-(a.score||0); if(dp!==0) return dp; return (b.totalNet||0)-(a.totalNet||0); }); if(!exDt.length) return;
+            // Sınav içi puan ortalaması/SS: ilerleme eğimi sınavlar arası zorluk-ölçek farkından arındırılmış (z) puanlarla hesaplanır
+            let _sc = exDt.map(x => x.score).filter(v => v !== null && v !== undefined && isFinite(v)), _scSd = _statStd(_sc);
+            gsDateStat[d] = (_sc.length >= 5 && _scSd > 0) ? { m: _sc.reduce((a,b)=>a+b,0)/_sc.length, sd: _scSd } : null;
             let firstScore = exDt[0].score;
             exDt.forEach((e, idx) => {
                 if(!stuStats[e.studentNo]) stuStats[e.studentNo] = { no: e.studentNo, name: getName(e.studentNo), cls: e.studentClass, first:0, top5:0, bottom5:0, exList:[] };
@@ -2687,14 +2773,15 @@ function rAnl(){
         let progressArr =[];
         Object.values(stuStats).forEach(st => {
             st.exList.sort((a,b) => srt(a.date, b.date));
-            if(st.exList.length >= 2) {
-              let scores = st.exList.map(e => e.score);
+            // En az _PROGRESS_MIN_N sınav ve her sınavda standartlaştırma yapılabilmesi şartı (2-3 noktalı eğimler gürültülüdür)
+            let _zs = st.exList.length >= _PROGRESS_MIN_N ? st.exList.map(e => { let s = gsDateStat[e.date]; return (s && e.score !== null && e.score !== undefined) ? (e.score - s.m) / s.sd : null; }) : null;
+            if(_zs && !_zs.some(z => z === null)) {
               let nets   = st.exList.map(e => e.totalNet);
-              let slopeScore = linRegSlope(scores);
+              let slopeScore = linRegSlope(_zs);              // sınav başına SS cinsinden eğim
               let slopeNet   = linRegSlope(nets);
-              let regChange = slopeScore * (scores.length - 1);
+              let regChange = slopeScore * (_zs.length - 1);  // seri boyunca toplam değişim (SS)
               let firstEx = st.exList[0], lastEx = st.exList[st.exList.length - 1];
-              progressArr.push({ ...st, diff: regChange, slope: slopeScore, slopeNet, examCount: scores.length, firstNet: firstEx.totalNet, lastNet: lastEx.totalNet, firstScore: firstEx.score, lastScore: lastEx.score });
+              progressArr.push({ ...st, diff: regChange, slope: slopeScore, slopeNet, examCount: _zs.length, firstNet: firstEx.totalNet, lastNet: lastEx.totalNet, firstScore: firstEx.score, lastScore: lastEx.score });
             }
             let tNet = 0, tScore = 0; st.exList.forEach(e => { tNet+=e.totalNet; tScore+=e.score; }); st.avgNet = tNet / st.exList.length; st.avgScore = tScore / st.exList.length;
         });
@@ -2723,33 +2810,7 @@ function rAnl(){
         let bottom5Html = bottom5List.length ? bottom5List.map((e,i) => buildRow(e, i, 'bottom5', 'kez')).join('') : '<tr><td colspan="7" class="text-center">Veri yok</td></tr>';
         let lvlStr = (targetLvl ? `${targetLvl}. Sınıflar` : '') + (brFilterED ? ` / ${brFilterED} Şubesi` : '') + ' ', safeName = safeFileName(`${eT}_Genel_Ozet`);
 
-        let eligibleStusGS = DB.s.filter(s => { let m = s.class.match(/^(\d+)/); if(targetLvl && m && m[1] !== targetLvl) return false; if(brFilterED) { let mm = s.class.match(/^(\d+)([a-zA-ZğüşıöçĞÜŞİÖÇ]+)$/); if(mm && mm[2].toLocaleUpperCase('tr-TR') !== brFilterED) return false; } return true; });
-        let gsExamGradeMap = {};
-        Object.values(EXAM_META).forEach(m => {
-          if(m.examType !== eT) return;
-          let key = m.date + '||' + (m.publisher || '');
-          if(!gsExamGradeMap[key]) gsExamGradeMap[key] = { grades:new Set() };
-          let gs = metaGrades(m).length ? metaGrades(m) : ['*'];
-          gs.forEach(g => gsExamGradeMap[key].grades.add(g));
-        });
-        let gsAttendedSetByStu = {};
-        DB.e.forEach(e => {
-          if(e.examType !== eT || e.abs) return;
-          let k = e.date + '||' + (e.publisher || '');
-          if(!gsAttendedSetByStu[e.studentNo]) gsAttendedSetByStu[e.studentNo] = new Set();
-          gsAttendedSetByStu[e.studentNo].add(k);
-        });
-        let baseCountGS = 0, attendedCountGS = 0;
-        eligibleStusGS.forEach(stu => {
-          let g = getGrade(stu.class);
-          let stuAtt = gsAttendedSetByStu[stu.no] || new Set();
-          Object.entries(gsExamGradeMap).forEach(([key, info]) => {
-            if(!(info.grades.has('*') || info.grades.has(g))) return;
-            baseCountGS++;
-            if(stuAtt.has(key)) attendedCountGS++;
-          });
-        });
-        let partRateGS = baseCountGS > 0 ? Math.max(0, Math.min(100, Math.round((attendedCountGS / baseCountGS) * 100))) : 0;
+        let { baseCount: baseCountGS, attendedCount: attendedCountGS, rate: partRateGS } = _calcParticipation({ examType: eT, lvl: targetLvl, br: brFilterED, looseClass: true });
 
         // Tüm Sınavlar istatistik kartları: her öğrencinin ortalama neti baz alınır
         let _gsAvgNets = Object.values(stuStats).filter(s => s.avgNet !== undefined && s.exList && s.exList.length > 0).map(s => s.avgNet);
@@ -2761,14 +2822,7 @@ function rAnl(){
           let _gsQ    = _statQuartiles(_gsAvgNets);
           let _gsCV   = _statCV(_gsAvgNets);
           let _gsHomLab = _homogeneityLabel(_gsCV);
-          let _gsIqrRatio = (_gsMed && _gsMed !== 0) ? _gsQ.iqr / Math.abs(_gsMed) : null;
-          let _gsIqrColor = '#6c757d', _gsIqrLabel = '—';
-          if (_gsIqrRatio !== null) {
-            if (_gsIqrRatio < 0.20)      { _gsIqrColor = '#28a745'; _gsIqrLabel = 'Homojen / Dengeli'; }
-            else if (_gsIqrRatio < 0.30) { _gsIqrColor = '#ffc107'; _gsIqrLabel = 'Normal Dağılım'; }
-            else if (_gsIqrRatio < 0.40) { _gsIqrColor = '#fd7e14'; _gsIqrLabel = 'Seviye Farkı Var (Dikkat!)'; }
-            else                         { _gsIqrColor = '#dc3545'; _gsIqrLabel = 'Kritik Kopukluk (Uçurum!)'; }
-          }
+          let { color: _gsIqrColor, label: _gsIqrLabel } = _iqrSpreadInfo(_gsQ.iqr, _gsMed);
           // Sınıf bazlı ortalama net (Tüm Sınavlar bağlamı için)
           let _gsClsAvg = {};
           Object.values(stuStats).forEach(s => { if (!_gsClsAvg[s.cls]) _gsClsAvg[s.cls] = []; _gsClsAvg[s.cls].push(s.avgNet); });
@@ -2811,8 +2865,8 @@ function rAnl(){
             <div class="card-body report-card-body">
               <div class="row g-2 sec-cards-row analysis-info-cards exam-info-cards">
                   <div class="col-12 col-md-4"><div class="sec-card"><div class="sec-icon"><i class="fas fa-trophy"></i></div><div class="sec-body"><div class="sec-label">En Çok Birinci Olan</div><div class="sec-value sec-value-compact">${mostFirst ? `${escapeHtml(mostFirst.name)} <small>(${escapeHtml(mostFirst.cls)})</small>` : 'Veri Yok'}</div><div class="sec-sub">${mostFirst ? `Toplam ${mostFirst.first} kez birinci oldu${mostFirstTie ? ' (Puan Üstünlüğü)' : ''}` : ''}</div></div></div></div>
-                  <div class="col-12 col-md-4"><div class="sec-card sec-pos"><div class="sec-icon"><i class="fas fa-chart-line"></i></div><div class="sec-body"><div class="sec-label">En Fazla İlerleme Kaydeden</div><div class="sec-value sec-value-compact">${bestP ? `${escapeHtml(bestP.name)} <small>(${escapeHtml(bestP.cls)})</small>` : 'Veri Yok'}</div><div class="sec-sub">${bestP ? `+${bestP.diff.toFixed(2)} Puan Eğim (${bestP.firstScore.toFixed(2)} -> ${bestP.lastScore.toFixed(2)})` : 'En az 2 sınava giren yok'}</div></div></div></div>
-                  <div class="col-12 col-md-4"><div class="sec-card sec-neg"><div class="sec-icon"><i class="fas fa-level-down-alt"></i></div><div class="sec-body"><div class="sec-label">En Fazla Gerileme Kaydeden</div><div class="sec-value sec-value-compact">${worstP ? `${escapeHtml(worstP.name)} <small>(${escapeHtml(worstP.cls)})</small>` : 'Veri Yok'}</div><div class="sec-sub">${worstP ? `${worstP.diff.toFixed(2)} Puan Eğim (${worstP.firstScore.toFixed(2)} -> ${worstP.lastScore.toFixed(2)})` : 'En az 2 sınava giren yok'}</div></div></div></div>
+                  <div class="col-12 col-md-4"><div class="sec-card sec-pos"><div class="sec-icon"><i class="fas fa-chart-line"></i></div><div class="sec-body"><div class="sec-label">En Fazla İlerleme Kaydeden</div><div class="sec-value sec-value-compact">${bestP ? `${escapeHtml(bestP.name)} <small>(${escapeHtml(bestP.cls)})</small>` : 'Veri Yok'}</div><div class="sec-sub">${bestP ? `+${bestP.diff.toFixed(2)} SS toplam eğim (${bestP.firstScore.toFixed(2)} -> ${bestP.lastScore.toFixed(2)} puan)` : `En az ${_PROGRESS_MIN_N} sınava giren yok`}</div></div></div></div>
+                  <div class="col-12 col-md-4"><div class="sec-card sec-neg"><div class="sec-icon"><i class="fas fa-level-down-alt"></i></div><div class="sec-body"><div class="sec-label">En Fazla Gerileme Kaydeden</div><div class="sec-value sec-value-compact">${worstP ? `${escapeHtml(worstP.name)} <small>(${escapeHtml(worstP.cls)})</small>` : 'Veri Yok'}</div><div class="sec-sub">${worstP ? `${worstP.diff.toFixed(2)} SS toplam eğim (${worstP.firstScore.toFixed(2)} -> ${worstP.lastScore.toFixed(2)} puan)` : `En az ${_PROGRESS_MIN_N} sınava giren yok`}</div></div></div></div>
               </div>
               <div class="row g-2 sec-cards-row analysis-info-cards exam-info-cards mt-2">
                   <div class="col-12 col-md-4"><div class="sec-card sec-pos"><div class="sec-icon"><i class="fas fa-arrow-up"></i></div><div class="sec-body"><div class="sec-label">Genel Ort. En Çok Artan Ders</div><div class="sec-value sec-value-compact">${bestSub ? escapeHtml(toTitleCase(bestSub.sub)) : 'Veri Yok'}</div><div class="sec-sub">${bestSub ? `+${bestSub.diff.toFixed(2)} Net (${bestSub.fAvg.toFixed(2)} -> ${bestSub.lAvg.toFixed(2)})` : 'Karşılaştırma için veri yetersiz'}</div></div></div></div>
@@ -2970,14 +3024,7 @@ function rAnl(){
         let _eQ    = _statQuartiles(examNets);
         let _eCV   = _statCV(examNets);
         let _eHomLab = _homogeneityLabel(_eCV);
-        let _iqrRatio = (_eMed && _eMed !== 0) ? _eQ.iqr / Math.abs(_eMed) : null;
-        let _iqrColor = '#6c757d', _iqrLabel = '—';
-        if(_iqrRatio !== null) {
-          if(_iqrRatio < 0.20)      { _iqrColor = '#28a745'; _iqrLabel = 'Homojen / Dengeli'; }
-          else if(_iqrRatio < 0.30) { _iqrColor = '#ffc107'; _iqrLabel = 'Normal Dağılım'; }
-          else if(_iqrRatio < 0.40) { _iqrColor = '#fd7e14'; _iqrLabel = 'Seviye Farkı Var (Dikkat!)'; }
-          else                      { _iqrColor = '#dc3545'; _iqrLabel = 'Kritik Kopukluk (Uçurum!)'; }
-        }
+        let { color: _iqrColor, label: _iqrLabel } = _iqrSpreadInfo(_eQ.iqr, _eMed);
         examStatsHtml = _trendStatBlock([
           _trendStatItem(
             'Ortalamadan Uzaklık (Standart Sapma)',
@@ -3180,7 +3227,7 @@ function rAnl(){
         </div>
         <div class="card-body report-card-body">
           <div class="scroll-hint"><i class="fas fa-arrows-alt-h me-1"></i>Tabloyu kaydırın</div>
-          <div class="scroll list-scroll"><table class="table table-sm table-hover table-bordered" id="tED"><thead><tr><th>#</th><th>Ad Soyad</th><th>Sınıf</th><th>Tarih</th><th>Yayınevi</th>${headCols}<th>Top.Net</th><th>Puan</th><th>Snf(S/K)</th><th>Okul(S/K)</th></tr></thead><tbody>${bodyRows}${classSubtotalRows}${listAvgRow}</tbody></table></div>
+          <div class="scroll list-scroll"><table class="table table-sm table-hover table-bordered" id="tED"><thead><tr><th>#</th><th>Ad Soyad</th><th>Sınıf</th><th>Tarih</th><th>Yayınevi</th>${headCols}<th>Top. Net</th><th>Puan</th><th>Snf(S/K)</th><th>Kurum(S/K)</th></tr></thead><tbody>${bodyRows}${classSubtotalRows}${listAvgRow}</tbody></table></div>
         </div>
       </div>`;
       r.innerHTML=h; if(aNo) setTimeout(()=>{ let hlRow=getEl('tED')?.querySelector('tr.highlight-row'); if(hlRow)hlRow.scrollIntoView({behavior:'smooth',block:'center'}); },300);
@@ -3216,22 +3263,23 @@ function rAnl(){
         subAvgs: Object.fromEntries(allSubKeys.map(k =>[k, s.subCounts[k] ? s.subSums[k] / s.subCounts[k] : null]))
       }));
 
-      let gradeRankList = [...fullStuArr].sort((a,b) => {
-        let dp = (b.avgScore||0) - (a.avgScore||0); if(dp !== 0) return dp;
-        return (b.avgNet||0) - (a.avgNet||0);
-      });
+      // Sıralamaya yalnızca sınavların en az yarısına giren öğrenciler dahil edilir: 1 sınava giren öğrencinin şanslı tek sonucu,
+      // 10 sınava girenin ortalamasıyla aynı kefeye konmaz (listedeki "!" uyarısıyla aynı kural). Eşit ortalamalar aynı sırayı alır.
+      let _laTotalEx = new Set(allEx.map(x => x.date)).size;
+      let _laEligible = s => !(_laTotalEx > 0 && s.examCount < _laTotalEx / 2);
+      let _laCmp = (a,b) => { let dp = (b.avgScore||0) - (a.avgScore||0); if(dp !== 0) return dp; return (b.avgNet||0) - (a.avgNet||0); };
+      let _laKey = s => (s.avgScore||0) + '|' + (s.avgNet||0);
+      let gradeRankList = fullStuArr.filter(_laEligible).sort(_laCmp);
       let gradeSizeMap = {};
-      gradeRankList.forEach((s, idx) => { gradeSizeMap[s.no] = { rank: idx + 1, total: gradeRankList.length }; });
+      { let rks = _rankSorted(gradeRankList, _laKey); gradeRankList.forEach((s, idx) => { gradeSizeMap[s.no] = { rank: rks[idx], total: gradeRankList.length }; }); }
 
       let clsRankMap = {};
-      fullStuArr.forEach(s => { (clsRankMap[s.cls] = clsRankMap[s.cls] ||[]).push(s); });
+      fullStuArr.filter(_laEligible).forEach(s => { (clsRankMap[s.cls] = clsRankMap[s.cls] ||[]).push(s); });
       let clsSizeMap = {};
       Object.keys(clsRankMap).forEach(cls => {
-        let sorted = [...clsRankMap[cls]].sort((a,b) => {
-          let dp = (b.avgScore||0) - (a.avgScore||0); if(dp !== 0) return dp;
-          return (b.avgNet||0) - (a.avgNet||0);
-        });
-        sorted.forEach((s, i) => { clsSizeMap[s.no] = { rank: i+1, total: sorted.length }; });
+        let sorted = [...clsRankMap[cls]].sort(_laCmp);
+        let rks = _rankSorted(sorted, _laKey);
+        sorted.forEach((s, i) => { clsSizeMap[s.no] = { rank: rks[i], total: sorted.length }; });
       });
 
       let displayStuArr = fullStuArr;
@@ -3248,7 +3296,7 @@ function rAnl(){
 
       let lvlStr = targetLvl ? `${targetLvl}. Sınıflar ` : '';
       let examDatesAll = [...new Set(allEx.map(x => x.date))].sort(srt);
-      let metaStrAll = `Hesaplanan Sınav: ${examDatesAll.length} | Listelenen Öğrenci: ${displayStuArr.length} | Sıralama: Ortalama Puan`;
+      let metaStrAll = `Hesaplanan Sınav: ${examDatesAll.length} | Listelenen Öğrenci: ${displayStuArr.length} | Sıralama: Ortalama Puan (sınavların en az yarısına girenler arasında)`;
       let headColsAll = allSubKeys.map(k => `<th>${escapeHtml(toTitleCase(k))}</th>`).join('');
 
       let totalExamCount = examDatesAll.length; // toplam sınav sayısı (unique tarihler)
@@ -3289,7 +3337,7 @@ function rAnl(){
           <div class="scroll-hint"><i class="fas fa-arrows-alt-h me-1"></i>Tabloyu kaydırın</div>
           <div class="scroll list-scroll">
             <table class="table table-sm table-hover table-bordered" id="tEDAll">
-              <thead><tr><th>#</th><th>Ad Soyad</th><th>Sınıf</th>${headColsAll}<th>Top.Net Ort.</th><th>Puan Ort.</th><th>Sıra/Sınıf</th><th>Sıra/Okul</th><th>Sınav Say.</th></tr></thead>
+              <thead><tr><th>#</th><th>Ad Soyad</th><th>Sınıf</th>${headColsAll}<th>Top. Net Ort.</th><th>Puan Ort.</th><th>Sıra/Sınıf</th><th>Sıra/Kurum</th><th>Sınav Say.</th></tr></thead>
               <tbody>${bodyRowsAll}${allAvgRow}</tbody>
             </table>
           </div>
@@ -3485,18 +3533,26 @@ async function generateRapor() {
         subAvgs: Object.fromEntries(allSubKeys.map(k => [k, s.subCounts[k] ? s.subSums[k] / s.subCounts[k] : null]))
       }));
 
+      // Sıralamaya yalnızca sınavların en az yarısına giren öğrenciler dahil edilir (1 sınava giren öğrencinin şanslı tek sonucu,
+      // çok sınava girenin ortalamasıyla aynı kefeye konmaz); eşit ortalamalar aynı sırayı alır.
+      let _rlTotalEx = new Set(allExamsOfType.map(x => x.date)).size;
+      let _rlEligible = s => !(_rlTotalEx > 0 && s.examCount < _rlTotalEx / 2);
+      let _rlCmp = (a,b) => { let dp = (b.avgScore||0) - (a.avgScore||0); if(dp !== 0) return dp; return (b.avgNet||0) - (a.avgNet||0); };
+      let _rlKey = s => (s.avgScore||0) + '|' + (s.avgNet||0);
+
       // Kurum / Seviye Sıralaması
-      let gradeRankList = [...fullStuArr].sort((a,b) => { let dp = (b.avgScore||0) - (a.avgScore||0); if(dp !== 0) return dp; return (b.avgNet||0) - (a.avgNet||0); });
+      let gradeRankList = fullStuArr.filter(_rlEligible).sort(_rlCmp);
       let gradeSizeMap = {};
-      gradeRankList.forEach((s, idx) => { gradeSizeMap[s.no] = { rank: idx + 1, total: gradeRankList.length }; });
+      { let rks = _rankSorted(gradeRankList, _rlKey); gradeRankList.forEach((s, idx) => { gradeSizeMap[s.no] = { rank: rks[idx], total: gradeRankList.length }; }); }
 
       // Sınıf Sıralaması
       let clsRankMap = {};
-      fullStuArr.forEach(s => { (clsRankMap[s.cls] = clsRankMap[s.cls] ||[]).push(s); });
+      fullStuArr.filter(_rlEligible).forEach(s => { (clsRankMap[s.cls] = clsRankMap[s.cls] ||[]).push(s); });
       let clsSizeMap = {};
       Object.keys(clsRankMap).forEach(cls => {
-        let sorted = [...clsRankMap[cls]].sort((a,b) => { let dp = (b.avgScore||0) - (a.avgScore||0); if(dp !== 0) return dp; return (b.avgNet||0) - (a.avgNet||0); });
-        sorted.forEach((s, i) => { clsSizeMap[s.no] = { rank: i+1, total: sorted.length }; });
+        let sorted = [...clsRankMap[cls]].sort(_rlCmp);
+        let rks = _rankSorted(sorted, _rlKey);
+        sorted.forEach((s, i) => { clsSizeMap[s.no] = { rank: rks[i], total: sorted.length }; });
       });
 
       // Ekrana sadece filtreye uyan öğrencileri bas
@@ -3539,7 +3595,7 @@ async function generateRapor() {
       // table-layout:auto ile tarayıcı içeriğe göre dağıtır; print'te A4'e sığdırır
       let colGroupAll = `<colgroup><col class="rl-col-idx"><col class="rl-col-name"><col class="rl-col-class">${allSubKeys.map(()=>'<col class="rl-col-sub">').join('')}<col class="rl-col-net"><col class="rl-col-score"><col class="rl-col-rank"><col class="rl-col-rank"><col class="rl-col-count"></colgroup>`;
 
-      let _colCount = 3 + allSubKeys.length + 5; /* #, Ad Soyad, Sınıf + dersler + Top.Net, Puan, Sıra/Sınıf, Sıra/Okul, Sınav Say. */
+      let _colCount = 3 + allSubKeys.length + 5; /* #, Ad Soyad, Sınıf + dersler + Top.Net, Puan, Sıra/Sınıf, Sıra/Kurum, Sınav Say. */
       html += `<div class="card shadow-sm mb-4 exam-type-block rapor-list-block exam-color-${_rExColorIdx}${isFirst?' exam-type-first':''}" data-exam-color-idx="${_rExColorIdx}" data-exam-color="${_rExColorIdx}">
         <div class="card-header sa-exam-header">
           <h3 class="card-title card-title-md m-0"><i class="fas fa-list-alt me-2"></i>${escapeHtml(_rExLabel)} — Toplu Liste | <span class="card-title-subtle">${escapeHtml(lvlStr)}</span></h3>
@@ -3551,7 +3607,7 @@ async function generateRapor() {
               ${colGroupAll}
               <thead>
                 <tr class="print-title-row"><th colspan="${_colCount}">${escapeHtml(_rExLabel)} — Toplu Liste | ${escapeHtml(lvlStr)}</th></tr>
-                <tr><th class="rl-idx">#</th><th class="rl-name">Ad Soyad</th><th class="rl-class">Sınıf</th>${headColsAll}<th class="rl-net">Top.Net Ort.</th><th class="rl-score">Puan Ort.</th><th class="rl-rank">Sıra/Sınıf</th><th class="rl-rank">Sıra/Okul</th><th class="rl-count">Sınav Say.</th></tr>
+                <tr><th class="rl-idx">#</th><th class="rl-name">Ad Soyad</th><th class="rl-class">Sınıf</th>${headColsAll}<th class="rl-net">Top. Net Ort.</th><th class="rl-score">Puan Ort.</th><th class="rl-rank">Sıra/Sınıf</th><th class="rl-rank">Sıra/Kurum</th><th class="rl-count">Sınav Say.</th></tr>
               </thead>
               <tbody>${bodyRowsAll}${allAvgRow}</tbody>
             </table>
@@ -3629,8 +3685,10 @@ async function generateRapor() {
         
         let attended = el.filter(e=>!e.abs), avgRow = '';
         if(attended.length > 0) {
-          let allGradeExamsR = DB.e.filter(x => x.examType === t && !x.abs && getGrade(x.studentClass) === stGrade);
-          let allClassExamsR = DB.e.filter(x => x.examType === t && !x.abs && x.studentClass === stu.class);
+          // Sınıf/Kurum ortalaması öğrencinin KATILDIĞI sınavlarla eşleştirilir (girmediği sınavlar hariç)
+          let _attKR = new Set(attended.map(e => e.date + '||' + (e.publisher || '')));
+          let allGradeExamsR = DB.e.filter(x => x.examType === t && !x.abs && getGrade(x.studentClass) === stGrade && _attKR.has(x.date + '||' + (x.publisher || '')));
+          let allClassExamsR = DB.e.filter(x => x.examType === t && !x.abs && x.studentClass === stu.class && _attKR.has(x.date + '||' + (x.publisher || '')));
           let genAvgSubsR = sb.map(x => { let v = allGradeExamsR.filter(e => e.subs[x] !== undefined).map(e => e.subs[x].net); return v.length ? (v.reduce((a,b)=>a+b,0)/v.length).toFixed(2) : '—'; });
           let genAvgNetR = allGradeExamsR.length > 0 ? (allGradeExamsR.reduce((a,e)=>a+e.totalNet,0)/allGradeExamsR.length).toFixed(2) : '—';
 let genAvgScoreR = allGradeExamsR.length > 0 ? (allGradeExamsR.reduce((a,e)=>a+e.score,0)/allGradeExamsR.length).toFixed(2) : '—';
@@ -3657,7 +3715,7 @@ let genAvgScoreR = allGradeExamsR.length > 0 ? (allGradeExamsR.reduce((a,e)=>a+e
             <div id="${bpId}"></div>
             <div class="single-exam-table-part analysis-table-part">
               <div class="scroll-hint"><i class="fas fa-arrows-alt-h me-1"></i>Tabloyu kaydırın</div>
-              <div class="scroll"><table class="table table-sm table-bordered table-striped" data-sh="${escapeHtml(t)}"><thead><tr><th>#</th><th>Tarih</th><th>Yayınevi</th>${sb.map(x=>`<th title="${escapeHtml(toTitleCase(x))}">${escapeHtml(abbrev(x))}</th>`).join('')}<th>Top.Net</th><th>Puan</th><th>Snf(S/K)</th><th>Okul(S/K)</th></tr></thead><tbody>${karneRows}${avgRow}</tbody></table></div>
+              <div class="scroll"><table class="table table-sm table-bordered table-striped" data-sh="${escapeHtml(t)}"><thead><tr><th>#</th><th>Tarih</th><th>Yayınevi</th>${sb.map(x=>`<th title="${escapeHtml(toTitleCase(x))}">${escapeHtml(abbrev(x))}</th>`).join('')}<th>Top. Net</th><th>Puan</th><th>Snf(S/K)</th><th>Kurum(S/K)</th></tr></thead><tbody>${karneRows}${avgRow}</tbody></table></div>
             </div>
             <div class="single-exam-chart-title chart-section-title"><i class="fas fa-chart-line"></i>${escapeHtml(_rExLabel)} — Toplam Net Gelişimi</div>
             <div class="chart-box chart-box-xs chart-box-top avoid-break"><canvas id="${chartId}"></canvas></div>
@@ -3668,8 +3726,12 @@ let genAvgScoreR = allGradeExamsR.length > 0 ? (allGradeExamsR.reduce((a,e)=>a+e
     
     html += `</div>`; r.innerHTML = html;
     
-    setTimeout(() => {
-      students.forEach(stu => {
+    // Grafikler ve kutu grafikleri öğrenci gruplarına bölünerek üretilir (yüzlerce grafiği tek seferde kurmak arayüzü dondurur);
+    // ilerleme yükleme katmanında gösterilir, işlem bitince (ya da hata olursa) kapanır. Yeni rapor üretilirse eski döngü durur.
+    const _karneTok = window._raporKarneToken = (window._raporKarneToken || 0) + 1;
+    let _karneIdx = 0;
+    const _karneChunk = 6;
+    const _karneForStudent = (stu) => {
         let stuExams = examsByStudent.get(stu.no) ||[];
         stuExams = stuExams.sort((a,b) => srt(a.date, b.date)); if (!stuExams.length) return;
         let grp = {};
@@ -3692,7 +3754,20 @@ let genAvgScoreR = allGradeExamsR.length > 0 ? (allGradeExamsR.reduce((a,e)=>a+e
             if(bpHtml) bpEl.innerHTML = bpHtml;
           }
         });
-      });
-    }, 200);
+    };
+    const _karneStep = () => {
+      if(window._raporKarneToken !== _karneTok) return; // daha yeni bir rapor başlatıldı
+      try {
+        const end = Math.min(_karneIdx + _karneChunk, students.length);
+        for(; _karneIdx < end; _karneIdx++) _karneForStudent(students[_karneIdx]);
+      } catch(err) { ld(0); throw err; }
+      if(_karneIdx < students.length){
+        ld(1, `Karne grafikleri hazırlanıyor (${_karneIdx}/${students.length})...`);
+        setTimeout(_karneStep, 0);
+      } else {
+        ld(0);
+      }
+    };
+    setTimeout(_karneStep, 200);
   }
 }

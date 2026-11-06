@@ -1,5 +1,5 @@
-importScripts('./version.js'); // APP_VERSION tek kaynaktan gelir
-const CACHE_NAME = 'sinav-analizi-' + APP_VERSION;
+try { importScripts('./version.js'); } catch (e) { /* version.js alınamazsa servis çalışanı yine de çalışsın */ } // APP_VERSION tek kaynaktan gelir
+const CACHE_NAME = 'sinav-analizi-' + (typeof APP_VERSION !== 'undefined' ? APP_VERSION : 'unknown');
 const SCOPE = '/sinav/';
 const ASSETS = [
   '/sinav/',

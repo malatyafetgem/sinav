@@ -39,6 +39,7 @@ function eExam(bId){
 }
 
 async function svExam(){
+  if(!requireAdmin('Sınav güncelleme')) return;
   let bId = getEl('eExBatchId').value, rawDate = getEl('eExDate').value.trim(), newDate = normalizeExamDate(rawDate), newType = getEl('eExType').value.trim().toLocaleUpperCase('tr-TR'), newPub = getEl('eExPub').value.trim();
   if(!rawDate || !newType){ showToast('Tarih ve tür zorunludur!','warning'); return; }
   if(!newDate){ showToast('Tarih gerçek bir GG.AA.YYYY tarihi olmalıdır! (Örn: 15.04.2024)', 'error'); return; }
@@ -109,6 +110,7 @@ async function xDel(){
     return;
   }
   if(!ensureOnlineForWrite('Silme işlemi')){ cMod('mConf'); return; }
+  if(!requireAdmin('Silme işlemi')){ cMod('mConf'); return; }
   if(t==='student'){
     // === FIX v11: Hayalet (orphan) veri temizliği — Firebase'deki TÜM sınav paketlerinden öğrenciyi sil ===
     let previousStudents = DB.s.slice();
@@ -146,7 +148,7 @@ async function xDel(){
       // Bellek senkronizasyonu
       Object.keys(cleanedByBatch).forEach(bId => { CACHED_RESULTS[bId] = cleanedByBatch[bId]; });
       Object.keys(CACHED_RESULTS).forEach(bId => { CACHED_RESULTS[bId] = (CACHED_RESULTS[bId]||[]).filter(x => x.studentNo !== id); });
-      DB.e = DB.e.filter(x => x.studentNo !== id);
+      rebuildDbFromCache(); // kalan öğrencilerin sınıf/kurum sıraları güncel veriden yeniden türetilir
       _riskCache = null; // Risk cache'i geçersiz kıl
       if(aNo === id) sAct(null);
       showToast('Öğrenci ve tüm sınav kayıtları silindi (' + touchedBatches.size + ' paket).', 'success');
@@ -158,15 +160,21 @@ async function xDel(){
     }
   }
   else if(t==='allStudents'){
+    // Geri dönüşsüz işlemden önce otomatik yedek (indirilir); yedek alınamazsa işlem yapılmaz
+    ld(1,'Silmeden önce otomatik yedek alınıyor...');
+    let _bkOk = await autoBackupBeforeDestructive(); ld(0);
+    if(!_bkOk){ cMod('mConf'); return; }
     try { await database.ref('db_v2').update({ students: [], examResults: null, examMeta: null }); DB.s=[]; CACHED_RESULTS={}; DB.e=[]; EXAM_META={}; _riskCache=null; _stuMapCache=null; sAct(null); rTabS(); rTabE(); uStat(); uDrp(); showToast('Tüm öğrenci ve sınav verileri silindi.', 'success'); }
     catch(err){ showToast('Silme işlemi başarısız: ' + err.message, 'error'); }
   }
   else if(t==='exam'){
-    try { await database.ref('db_v2').update({ ['examResults/'+id]: null, ['examMeta/'+id]: null }); if(CACHED_RESULTS[id]) delete CACHED_RESULTS[id]; delete EXAM_META[id]; DB.e = DB.e.filter(x => x.examBatchId !== id); _riskCache = null; // Risk cache'i geçersiz kıl
+    try { await database.ref('db_v2').update({ ['examResults/'+id]: null, ['examMeta/'+id]: null }); if(CACHED_RESULTS[id]) delete CACHED_RESULTS[id]; delete EXAM_META[id]; rebuildDbFromCache(); _riskCache = null; // Risk cache'i geçersiz kıl
 rTabE(); uStat(); uDrp(); if(aNo) reqProfile(); else if(getEl('sonuclar').classList.contains('active-pane')) reqAnl(); showToast('Sınav silindi.', 'success'); }
     catch(err){ showToast('Sınav silinemedi: ' + err.message, 'error'); }
   }
   else if(t==='all'){
+    ld(1,'Sıfırlamadan önce otomatik yedek alınıyor...');
+    if(!(await autoBackupBeforeDestructive())){ ld(0); cMod('mConf'); return; }
     ld(1,'Sıfırlanıyor...');
     try { await database.ref('db_v2').remove(); location.reload(); return; }
     catch(err){ showToast('Sıfırlama başarısız: ' + err.message, 'error'); ld(0); }
@@ -179,8 +187,14 @@ async function svStu(){
   if(!n||!nm||!cc){showToast('Tüm alanları doldurun!','warning');return;}
   let classParts = getClassParts(cc);
   if(!classParts.grade || !classParts.branch){ showToast('Sınıf formatı geçersiz. Örn: 9A, 10B', 'warning'); return; }
+  if(!requireAdmin('Öğrenci kaydı')) return;
   if(!ensureOnlineForWrite('Öğrenci kaydı')) return;
   let s=getStuMap().get(n); 
+  // "Ekle" modunda (numara alanı açık) var olan bir numarayı girmek mevcut öğrenciyi sessizce ezmesin
+  if(s && !getEl('mSNo').disabled){
+    showToast(`${n} numaralı öğrenci zaten kayıtlı (${s.name}, ${s.class}). Bilgilerini değiştirmek için listedeki düzenle düğmesini kullanın.`, 'warning', 7000);
+    return;
+  }
   let oldClass = s ? s.class : null;
   let nextStudents = s
     ? DB.s.map(st => st.no === n ? {...st, name:toTitleCase(nm), class:cc} : st)
@@ -225,9 +239,41 @@ async function svStu(){
   cMod('mStu'); showToast('Öğrenci bilgileri kaydedildi.', 'success');
 }
 
+// ---- Yedekleme ----
+async function buildBackupPayload(){
+  let resultsSnap = await database.ref('db_v2/examResults').once('value');
+  return { _version: 2, _date: new Date().toISOString(), students: DB.s, examMeta: EXAM_META, examResults: resultsSnap.val() || {} };
+}
+
+function downloadBackupFile(payload, prefix, withTime){
+  const now = new Date();
+  const day = now.toLocaleDateString('tr-TR').replace(/\./g,'-');
+  const pad = n => String(n).padStart(2,'0');
+  const time = withTime ? '_' + pad(now.getHours()) + pad(now.getMinutes()) + pad(now.getSeconds()) : '';
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `${prefix}_${day}${time}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+// Geri dönüşsüz işlemlerden (tümünü silme, sıfırlama, geri yükleme) önce çağrılır.
+// Yedek hazırlanamazsa false döner ve çağıran işlem iptal edilir.
+async function autoBackupBeforeDestructive(){
+  try {
+    downloadBackupFile(await buildBackupPayload(), 'OtomatikYedek', true);
+    showToast('İşlemden önce otomatik yedek indirildi. Lütfen saklayın.', 'info', 6000);
+    return true;
+  } catch(err){
+    showToast('Otomatik yedek alınamadı; veri güvenliği için işlem iptal edildi: ' + err.message, 'error', 8000);
+    return false;
+  }
+}
+
 async function expDB(){
   ld(1,'Yedek hazırlanıyor, lütfen bekleyin...');
-  try { let resultsSnap = await database.ref('db_v2/examResults').once('value'); let payload = { _version: 2, _date: new Date().toISOString(), students: DB.s, examMeta: EXAM_META, examResults: resultsSnap.val() || {} }; let b = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'}); let a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = `TamYedek_${new Date().toLocaleDateString('tr-TR').replace(/\./g,'-')}.json`; a.click(); } catch(err) { showToast('Yedek alınamadı: ' + err.message, 'error'); }
+  try { downloadBackupFile(await buildBackupPayload(), 'TamYedek', false); } catch(err) { showToast('Yedek alınamadı: ' + err.message, 'error'); }
   ld(0);
 }
 
@@ -279,6 +325,8 @@ function restoreBackupFile(f){
         }
       }
       let cleanPayload = sanitizeBackupPayload(p);
+      ld(1,'Geri yüklemeden önce mevcut verinin otomatik yedeği alınıyor...');
+      if(!(await autoBackupBeforeDestructive())){ ld(0); return; }
       ld(1,'Veriler geri yükleniyor...');
       await database.ref('db_v2').set(cleanPayload);
       CACHED_RESULTS = {}; showToast('Geri yükleme tamamlandı. Sayfa yenileniyor...', 'success', 2500); setTimeout(() => location.reload(), 700);
@@ -363,6 +411,7 @@ function sanitizeBackupPayload(p){
 
 function upl(e, t) {
   let f = e.target.files[0]; if(!f) return;
+  if(!xlsxReady()) { e.target.value=''; return; }
   // === FIX: XLSX yükleme kırılganlığı — uzantı, boyut, sayfa ve başlık doğrulamaları ===
   let validExt = /\.(xlsx|xls|xlsm|csv)$/i;
   if(!validExt.test(f.name)) { showToast('Sadece Excel/CSV dosyaları yüklenebilir (.xlsx, .xls, .xlsm, .csv).', 'error'); e.target.value=''; return; }
@@ -411,7 +460,7 @@ let wizardStep = 0;
 function buildMappingUI() {
   let b = getEl('mMappingsBody'), h = currentHeaders;
   if(currentUploadType === 's') {
-    let saved = JSON.parse(localStorage.getItem('map_s') || '{}');
+    let saved = JSON.parse(userStorageGet('map_s') || '{}');
     b.innerHTML = `<div class="alert alert-info py-2 mapping-info"><i class="fas fa-info-circle me-1"></i> Excel dosyanızdaki sütunları sistemdeki alanlarla eşleştirin.</div>
       <div class="wizard-section"><h6><i class="fas fa-id-card me-1"></i> Temel Alanlar</h6>
         <div class="mb-3"><label class="form-label">Öğrenci No Sütunu</label><select id="map_s_no" class="form-select">${buildOptions(h, saved.no || 'no')}</select></div>
@@ -428,7 +477,7 @@ function buildMappingUI() {
 const WIZARD_STEPS = [ { id:'wiz-step-0', title:'1. Sınav Genel Bilgileri' }, { id:'wiz-step-1', title:'2. Sabit Excel Sütunları' }, { id:'wiz-step-2', title:'3. Ders Netleri Eşleştirmesi' }, { id:'wiz-step-3', title:'4. Dereceler (İsteğe Bağlı)' } ];
 
 function renderWizardStep() {
-  let h = currentHeaders, saved = {}; try { saved = JSON.parse(localStorage.getItem('map_e') || '{}'); } catch(e){}
+  let h = currentHeaders, saved = {}; try { saved = JSON.parse(userStorageGet('map_e') || '{}'); } catch(e){}
   let today = new Date().toISOString().split('T')[0], [y,m,d] = today.split('-'), trDate = `${d}.${m}.${y}`, b = getEl('mMappingsBody');
 
   let progHtml = `<div class="wizard-progress"><div class="wizard-step-row">${WIZARD_STEPS.map((s,i) => `<div class="wizard-step-label ${i===wizardStep?'is-active':i<wizardStep?'is-complete':''}">${i<wizardStep?'✓ ':''}${s.title}</div>`).join('')}</div><div class="progress"><div class="progress-bar wizard-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(((wizardStep+1)/WIZARD_STEPS.length)*100)}"></div></div></div>`;
@@ -453,7 +502,7 @@ function renderWizardStep() {
   if(progBar) progBar.style.width = `${((wizardStep+1)/WIZARD_STEPS.length)*100}%`;
   
   if(wizardStep === 2) {
-    let savedSubs = []; try { savedSubs = JSON.parse(localStorage.getItem('map_e') || '{}').subs || []; } catch(e){}
+    let savedSubs = []; try { savedSubs = JSON.parse(userStorageGet('map_e') || '{}').subs || []; } catch(e){}
     if(savedSubs.length > 0) { savedSubs.forEach(s => addSubjectRow(s.col, s.name)); } else {
       let trCol = h.find(x => x.toLocaleLowerCase('tr-TR').includes('türkçe') || x.toLocaleLowerCase('tr-TR') === 'tr'), matCol = h.find(x => x.toLocaleLowerCase('tr-TR').includes('matematik') || x.toLocaleLowerCase('tr-TR') === 'mat');
       if(trCol) addSubjectRow(trCol, 'Türkçe'); if(matCol) addSubjectRow(matCol, 'Matematik'); if(!trCol && !matCol) addSubjectRow();
@@ -469,12 +518,12 @@ function renderWizardStep() {
 function wizardNav(dir) { saveWizardStepData(); wizardStep = Math.max(0, Math.min(WIZARD_STEPS.length - 1, wizardStep + dir)); renderWizardStep(); }
 
 function saveWizardStepData() {
-  let saved = {}; try { saved = JSON.parse(localStorage.getItem('map_e') || '{}'); } catch(e){}
+  let saved = {}; try { saved = JSON.parse(userStorageGet('map_e') || '{}'); } catch(e){}
   if(wizardStep === 0) { let t = getEl('map_e_type'), d = getEl('map_e_date'), p = getEl('map_e_pub'), ma = getEl('map_e_mark_absent'); if(t) saved.type = t.value; if(d) saved.date = d.value; if(p) saved.pub = p.value; if(ma) saved.markAbsent = ma.checked; }
   else if(wizardStep === 1) { let no = getEl('map_e_no'), tn = getEl('map_e_tnet'), sc = getEl('map_e_score'); if(no) saved.no = no.value; if(tn) saved.tnet = tn.value; if(sc) saved.score = sc.value; }
   else if(wizardStep === 2) { let rows = document.querySelectorAll('.subj-map-row'), subs = []; rows.forEach(r => { let c = r.querySelector('.map-subj-col').value, n = r.querySelector('.map-subj-name').value.trim(); if(c && n) subs.push({col:c,name:n}); }); saved.subs = subs; }
   else if(wizardStep === 3) { ['dR','dP','pR','pP','gR','gP'].forEach(k => { let el = getEl('map_e_'+k); if(el) saved[k] = el.value; }); ['cR','cP','iR','iP'].forEach(k => { delete saved[k]; }); }
-  try { localStorage.setItem('map_e', JSON.stringify(saved)); } catch(e) {}
+  try { userStorageSet('map_e', JSON.stringify(saved)); } catch(e) {}
 }
 
 function addSubjectRow(selectedCol = '', typedName = '') {
@@ -490,14 +539,16 @@ function processMappings() {
   if(currentUploadType === 's') {
     let cNo = getEl('map_s_no').value, cName = getEl('map_s_name').value, cCls = getEl('map_s_cls').value;
     if(!cNo || !cName || !cCls) { showToast('Lütfen tüm temel alanları eşleştirin.', 'warning'); return; }
-    try { localStorage.setItem('map_s', JSON.stringify({no: cNo, name: cName, cls: cCls})); } catch(e) {}
+    try { userStorageSet('map_s', JSON.stringify({no: cNo, name: cName, cls: cCls})); } catch(e) {}
 
-    let newStus = [], existingNos = [], invalidRows = [];
+    let newStus = [], existingNos = [], invalidRows = [], seenNos = new Set();
     d.forEach((r, i) => {
       let n = String(r[cNo]||'').trim(), nm = String(r[cName]||'').trim(), cc = normalizeClassName(r[cCls]);
       let parts = getClassParts(cc);
       if(!n || !nm || !cc) { invalidRows.push({ rowNum: i + 2, data: `${n || '—'} - ${nm || '—'}`, reason: 'Eksik Alan' }); return; }
       if(!parts.grade || !parts.branch) { invalidRows.push({ rowNum: i + 2, data: `${n || '—'} - ${nm || '—'} - ${r[cCls] || ''}`, reason: 'Sınıf formatı geçersiz (örn: 9A)' }); return; }
+      if(seenNos.has(n)) { invalidRows.push({ rowNum: i + 2, data: `${n} - ${nm}`, reason: 'Dosyada mükerrer numara (ilk satır kullanıldı)' }); return; }
+      seenNos.add(n);
       if(getStuMap().get(n)) existingNos.push(n); else newStus.push({no:n, name:toTitleCase(nm), class:cc});
     });
 
@@ -512,13 +563,13 @@ function processMappings() {
     PENDING_UPLOAD = { type: 's', data: newStus };
 
   } else {
-    let _sv = {}; try { _sv = JSON.parse(localStorage.getItem('map_e') || '{}'); } catch(e) {}
+    let _sv = {}; try { _sv = JSON.parse(userStorageGet('map_e') || '{}'); } catch(e) {}
     let eType = (getEl('map_e_type') ? getEl('map_e_type').value.trim() : (_sv.type||'')).toLocaleUpperCase('tr-TR');
     let rawEDate = getEl('map_e_date') ? getEl('map_e_date').value.trim() : (_sv.date || '');
     let eDate = normalizeExamDate(rawEDate), ePub = getEl('map_e_pub') ? getEl('map_e_pub').value.trim() : (_sv.pub || '');
     let cNo = getEl('map_e_no') ? getEl('map_e_no').value : (_sv.no || ''), cTnet = getEl('map_e_tnet') ? getEl('map_e_tnet').value : (_sv.tnet || ''), cScore = getEl('map_e_score') ? getEl('map_e_score').value : (_sv.score || '');
     
-    saveWizardStepData(); let _saved = {}; try { _saved = JSON.parse(localStorage.getItem('map_e') || '{}'); } catch(e) {}
+    saveWizardStepData(); let _saved = {}; try { _saved = JSON.parse(userStorageGet('map_e') || '{}'); } catch(e) {}
     if(!eType) { showToast('Lütfen Sınav Türünü girin (Adım 1).', 'warning'); return; } 
     if(!rawEDate) { showToast('Lütfen Sınav Tarihini girin (Adım 1).', 'warning'); return; }
     if(!eDate){ showToast('Tarih gerçek bir GG.AA.YYYY tarihi olmalıdır! (Örn: 15.04.2024)', 'error'); return; }
@@ -526,10 +577,10 @@ function processMappings() {
     if(!cScore){ showToast('Lütfen Puan sütununu seçin (Adım 2).', 'warning'); return; }
 
     let subRows = document.querySelectorAll('.subj-map-row'), subsMap = []; subRows.forEach(r => { let c = r.querySelector('.map-subj-col').value, n = r.querySelector('.map-subj-name').value.trim(); if(c && n) subsMap.push({col: c, name: n}); });
-    if(subsMap.length === 0) { let _lsSubs = []; try { _lsSubs = JSON.parse(localStorage.getItem('map_e') || '{}').subs || []; } catch(e) {} if(_lsSubs.length > 0) subsMap = _lsSubs; }
+    if(subsMap.length === 0) { let _lsSubs = []; try { _lsSubs = JSON.parse(userStorageGet('map_e') || '{}').subs || []; } catch(e) {} if(_lsSubs.length > 0) subsMap = _lsSubs; }
     if(subsMap.length === 0) { showToast('En az bir ders neti eşleştirmelisiniz (Adım 3).', 'warning'); return; }
 
-    saveWizardStepData(); let finalSaved = {}; try { finalSaved = JSON.parse(localStorage.getItem('map_e') || '{}'); } catch(e){}
+    saveWizardStepData(); let finalSaved = {}; try { finalSaved = JSON.parse(userStorageGet('map_e') || '{}'); } catch(e){}
     let markAbsent = !!finalSaved.markAbsent;
     let cRank = { cR: '', cP: '', iR: '', iP: '', dR: finalSaved.dR||'', dP: finalSaved.dP||'', pR: finalSaved.pR||'', pP: finalSaved.pP||'', gR: finalSaved.gR||'', gP: finalSaved.gP||'' };
 
@@ -580,7 +631,10 @@ function processMappings() {
       }
     });
     if(validResults.length === 0) { showToast('Sisteme eklenecek geçerli bir sınav sonucu bulunamadı.', 'error'); return; }
-    let overwriteWarning = existsId ? `<div class="alert alert-danger mt-3"><strong><i class="fas fa-exclamation-triangle me-2"></i>DİKKAT!</strong> Sistemde <b>${escapeHtml(eDate)}</b> tarihli bir <b>${escapeHtml(eType)}</b> sınavı zaten var. Onaylarsanız, eski veriler bu dosyadaki verilerle atomik olarak değiştirilecektir.</div>` : '';
+    let _oldCount = (existsId && Array.isArray(CACHED_RESULTS[existsId])) ? CACHED_RESULTS[existsId].length : null;
+    let overwriteWarning = existsId ? `<div class="alert alert-warning mt-3"><strong><i class="fas fa-exclamation-triangle me-2"></i>Bu sınav sistemde zaten kayıtlı!</strong> <b>${escapeHtml(eDate)}</b> tarihli <b>${escapeHtml(eType)}</b> sınavı için ${_oldCount !== null ? `<b>${_oldCount}</b> kayıt` : 'kayıtlar'} mevcut. Nasıl devam edilsin?
+      <div class="form-check mt-2"><input class="form-check-input" type="radio" name="uploadMode" id="uploadModeMerge" value="merge" checked><label class="form-check-label" for="uploadModeMerge"><strong>Birleştir (önerilen):</strong> Dosyadaki öğrencilerin sonuçları eklenir veya güncellenir; dosyada olmayan öğrencilerin mevcut sonuçları <u>korunur</u>.</label></div>
+      <div class="form-check mt-1"><input class="form-check-input" type="radio" name="uploadMode" id="uploadModeReplace" value="replace"><label class="form-check-label" for="uploadModeReplace"><strong>Tamamen değiştir:</strong> Eski sınav verisi silinir; yalnızca bu dosyadaki sonuçlar kalır.</label></div></div>` : '';
     let missingFromFileLabel = markAbsent ? 'Katılmadı:' : 'Dosyada Yok:';
     let missingFromFileClass = markAbsent ? 'text-warning' : 'text-muted';
     let missingFromFileTitle = markAbsent ? 'Sınıf listesinde olup dosyada bulunmayanlar. Katılmadı olarak işaretlenecek.' : 'Sınıf listesinde olup dosyada bulunmayanlar. Devamsız sayılmayacak ve kayıt oluşturulmayacak.';
@@ -599,7 +653,10 @@ let UPLOAD_IN_PROGRESS = false;
 async function confirmUpload() {
   if(UPLOAD_IN_PROGRESS) return;
   if(!PENDING_UPLOAD) return cancelUpload();
+  if(!requireAdmin('Veri yükleme')) return;
   if(!ensureOnlineForWrite('Veri yükleme')) return;
+  // Aynı sınav zaten kayıtlıysa: 'merge' (varsayılan, mevcut sonuçlar korunur) ya da 'replace' (tamamen değiştir)
+  let _uploadMode = (getEl('uploadModeReplace') && getEl('uploadModeReplace').checked) ? 'replace' : 'merge';
   // Çift tıklama koruması: butonu disable et ve yükleme bayrağını kur
   UPLOAD_IN_PROGRESS = true;
   let _btn = getEl('btnConfirmUpload');
@@ -614,9 +671,28 @@ async function confirmUpload() {
       rTabS(); uStat(); showToast(`${PENDING_UPLOAD.data.length} yeni öğrenci sisteme başarıyla eklendi.`, 'success');
     } 
     else if (PENDING_UPLOAD.type === 'e') {
-      let examMeta = { date: PENDING_UPLOAD.bD, examType: PENDING_UPLOAD.bT, publisher: PENDING_UPLOAD.bPub, count: PENDING_UPLOAD.newResults.length, subjects: PENDING_UPLOAD.subjects, grades: PENDING_UPLOAD.grades };
+      let finalResults = PENDING_UPLOAD.newResults, finalSubjects = PENDING_UPLOAD.subjects, finalGrades = PENDING_UPLOAD.grades, finalPub = PENDING_UPLOAD.bPub;
+      let mergeInfo = null;
+      if(PENDING_UPLOAD.existsId && _uploadMode === 'merge'){
+        // Birleştirme: mevcut kayıtlar Firebase'den taze okunur (başka oturum değiştirmiş olabilir)
+        let oldSnap = await database.ref('db_v2/examResults/' + PENDING_UPLOAD.existsId).once('value');
+        let merged = new Map(toCleanArray(oldSnap.val()).filter(Boolean).map(r => [r.studentNo, r]));
+        let applied = 0;
+        PENDING_UPLOAD.newResults.forEach(r => {
+          let o = merged.get(r.studentNo);
+          if(r.abs && o && !o.abs) return; // "katılmadı" işaretlenen ama mevcut gerçek sonucu olan öğrencinin sonucu korunur
+          merged.set(r.studentNo, r); applied++;
+        });
+        finalResults = Array.from(merged.values());
+        let oldMeta = EXAM_META[PENDING_UPLOAD.existsId] || {};
+        finalGrades = Array.from(new Set([...(metaGrades(oldMeta) || []).map(String), ...(PENDING_UPLOAD.grades || []).map(String)]));
+        finalSubjects = Array.from(new Set([...(Array.isArray(oldMeta.subjects) ? oldMeta.subjects : []), ...(PENDING_UPLOAD.subjects || [])]));
+        if(!finalPub) finalPub = oldMeta.publisher || '';
+        mergeInfo = { applied, kept: finalResults.length - applied };
+      }
+      let examMeta = { date: PENDING_UPLOAD.bD, examType: PENDING_UPLOAD.bT, publisher: finalPub, count: finalResults.length, subjects: finalSubjects, grades: finalGrades, updatedAt: Date.now() };
       let updates = {
-        ['examResults/' + PENDING_UPLOAD.bId]: PENDING_UPLOAD.newResults,
+        ['examResults/' + PENDING_UPLOAD.bId]: finalResults,
         ['examMeta/' + PENDING_UPLOAD.bId]: examMeta
       };
       if(PENDING_UPLOAD.existsId && PENDING_UPLOAD.existsId !== PENDING_UPLOAD.bId) {
@@ -628,11 +704,11 @@ async function confirmUpload() {
         delete CACHED_RESULTS[PENDING_UPLOAD.existsId];
         delete EXAM_META[PENDING_UPLOAD.existsId];
       }
-      CACHED_RESULTS[PENDING_UPLOAD.bId] = PENDING_UPLOAD.newResults;
+      CACHED_RESULTS[PENDING_UPLOAD.bId] = finalResults;
       EXAM_META[PENDING_UPLOAD.bId] = examMeta;
       rebuildDbFromCache();
       _riskCache = null; // Risk cache'i geçersiz kıl
-      showToast('Sınav sonuçları sisteme başarıyla kaydedildi.', 'success');
+      showToast(mergeInfo ? `Sınav sonuçları birleştirildi: ${mergeInfo.applied} sonuç eklendi/güncellendi, ${mergeInfo.kept} mevcut sonuç korundu.` : 'Sınav sonuçları sisteme başarıyla kaydedildi.', 'success', mergeInfo ? 6500 : 4000);
     }
   } catch(err) { showToast('Kayıt sırasında hata oluştu: ' + err.message, 'error'); }
   finally {
@@ -641,8 +717,6 @@ async function confirmUpload() {
     cancelUpload(); ld(0);
   }
 }
-
-const APP_CACHE_NAME = window.SA_CACHE_NAME; // version.js → index.html üzerinden gelir
 
 let APP_BOOTED = false;
 function bootApp(){
@@ -662,13 +736,7 @@ function bootApp(){
       }
     }
   });
-  // Service Worker kaydı index.html'deki tek kayıt üzerinden yönetilmektedir.
-  // Burada yalnızca eski cache'lerin temizlenmesi yapılır.
-  if (window.caches) {
-    caches.keys()
-      .then(keys => Promise.all(keys.filter(key => key.startsWith('sinav-analizi-') && key !== APP_CACHE_NAME).map(key => caches.delete(key))))
-      .catch(err => console.warn('Eski önbellek temizlenemedi:', err));
-  }
+  // Service Worker kaydı ve eski önbelleklerin temizliği index.html (başlangıç betiği) ve sw.js (activate) tarafından yapılır.
 }
 
 if(document.readyState === 'complete') bootApp();
@@ -716,8 +784,23 @@ window.addEventListener('appinstalled', () => {
   finishPwaInstallFlow();
 });
 
+// iOS Safari'de beforeinstallprompt olayı yoktur; kurulum adımı kullanıcıya (cihaz başına bir kez) kısa bir ipucuyla anlatılır.
+function _maybeShowIosInstallHint() {
+  try {
+    const ua = navigator.userAgent || '';
+    const isIos = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const standalone = navigator.standalone === true || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+    const isSafari = /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS/.test(ua);
+    if(!isIos || standalone || !isSafari) return;
+    if(userStorageGet('iosInstallHint') === '1') return;
+    userStorageSet('iosInstallHint', '1');
+    setTimeout(() => showToast('Uygulamayı ana ekrana eklemek için Safari’de Paylaş düğmesine, ardından “Ana Ekrana Ekle”ye dokunun.', 'info', 10000), 2500);
+  } catch(e) {}
+}
+
 function showPwaPopupIfReady() {
   userLoggedIn = true;
+  _maybeShowIosInstallHint();
   if (!deferredInstallPrompt || pwaInstallCompleted || pwaInstallHandled) return;
   let installWrap = document.getElementById('installBtnWrapper');
   if(installWrap) installWrap.style.display = 'block';

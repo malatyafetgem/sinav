@@ -236,44 +236,17 @@ select.form-control {
 .pane { display:none; }
 .pane.active-pane,
 .pane[aria-hidden="false"] { display:block; }
-.sa-content-header {
-  padding: 10px 0.5rem;
-  border-bottom: 1px solid var(--sa-border);
-  background: rgba(255,255,255,0.88);
-  box-shadow: 0 1px 0 rgba(15,23,42,0.03);
-  margin-bottom: 14px;
-}
+
 @media (max-width: 991px) {
-  .sa-content-header {
-    display: none !important;
-  }
+  
   .app-content {
     padding-top: 14px !important;
   }
 }
-.sa-breadcrumb {
-  background: transparent;
-  padding: 0;
-  margin: 0;
-  min-height: 32px;
-  display: flex;
-  align-items: center;
-  font-size: 0.96rem;
-  line-height: 1.25;
-}
-.sa-breadcrumb .breadcrumb-item {
-  display: inline-flex;
-  align-items: center;
-  color: var(--sa-muted);
-}
-.sa-breadcrumb .breadcrumb-item + .breadcrumb-item::before {
-  color: #94a3b8;
-  padding-right: 0.55rem;
-}
-.sa-breadcrumb-active {
-  font-weight: 700;
-  color: var(--sa-text);
-}
+
+
+
+
 .sa-footer {
   font-size: 0.85em;
 }
@@ -393,41 +366,14 @@ tr.print-title-row { display: none; }
 .analysis-filter-card .card-header {
   min-height: 52px;
 }
-.filter-summary {
-  display: none !important;
-  border-bottom: 1px solid #edf1f5;
-  background: #fbfcfe;
-  padding: 8px 12px;
-}
-.filter-summary-inner {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.filter-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 28px;
-  padding: 4px 9px;
-  border-radius: 999px;
-  border: 1px solid #dbe3ec;
-  background: #fff;
-  color: #26323f;
-  font-size: 0.78rem;
-  line-height: 1.2;
-}
-.filter-chip small {
-  color: #6c757d;
-  font-weight: 700;
-  font-size: 0.68rem;
-  text-transform: uppercase;
-}
-.filter-chip.chip-primary { border-color: rgba(13,110,253,0.28); background: rgba(13,110,253,0.06); }
-.filter-chip.chip-success { border-color: rgba(25,135,84,0.28); background: rgba(25,135,84,0.07); }
-.filter-chip.chip-muted { color: #6c757d; background: #f8f9fa; }
-.filter-reset-btn { margin-left: auto; white-space: nowrap; }
+
+
+
+
+
+
+
+
 .filter-reset-header {
   border-color: var(--sa-border);
   color: var(--sa-muted);
@@ -526,19 +472,7 @@ tr.print-title-row { display: none; }
     linear-gradient(135deg, rgba(37,99,235,0.10), rgba(5,150,105,0.08));
   border-bottom: 1px solid rgba(226,232,240,0.88);
 }
-.card-explanation-popover-icon {
-  width: 33px;
-  height: 33px;
-  border-radius: 12px;
-  background: rgba(255,255,255,0.88);
-  color: var(--sa-primary);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  font-size: 0.86rem;
-  box-shadow: 0 6px 18px rgba(37,99,235,0.12);
-}
+
 .card-explanation-title-wrap {
   min-width: 0;
 }
@@ -576,12 +510,7 @@ tr.print-title-row { display: none; }
   font-size: 0.86rem;
   line-height: 1.48;
 }
-.card-explanation-lead {
-  margin: 0;
-  color: #26384d;
-  font-weight: 600;
-  line-height: 1.52;
-}
+
 .card-explanation-section,
 .card-explanation-caution {
   display: grid;
@@ -641,19 +570,7 @@ tr.print-title-row { display: none; }
   gap: 10px;
   min-width: 0;
 }
-.card-explanation-sheet-icon {
-  width: 33px;
-  height: 33px;
-  border-radius: 12px;
-  background: rgba(255,255,255,0.88);
-  color: var(--sa-primary);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  font-size: 0.86rem;
-  box-shadow: 0 6px 18px rgba(37,99,235,0.12);
-}
+
 .card-explanation-sheet .offcanvas-title {
   margin: 0;
   color: #172033;
@@ -772,9 +689,9 @@ body.is-admin button.w-100.admin-only { display:block !important; }
 .sec-value-small { font-size:0.95em; }
 .sec-unit { font-size:0.62em; font-weight:600; color:#6c757d; }
 .sec-unit-muted { font-size:0.62em; font-weight:600; }
-.sec-inline-summary { font-size:0.55em; font-weight:400; color:#6c757d; letter-spacing:0; }
+
 .sec-label-note { font-weight:400; color:#6c757d; }
-.sec-sub-strong { font-weight:600; }
+
 .sec-sub-comparison { color:var(--metric-color, #6c757d); font-weight:600; }
 .comparison-list { margin-top:4px; max-height:80px; overflow-y:auto; }
 .summary-pill { font-size:0.78em; background:#f1f3f5; border-radius:6px; padding:2px 8px; color:#495057; }
@@ -940,15 +857,15 @@ body.is-admin button.w-100.admin-only { display:block !important; }
 .subj-map-row { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; background: #fff; padding: 10px; border-radius: 4px; border: 1px dashed #ccc; }
 .subj-map-row select, .subj-map-row input { flex: 1; }
 .subj-map-row .btn-remove { flex: 0 0 auto; }
-.wiz-steps { display: flex; justify-content: space-between; font-size: 0.78em; margin-bottom: 4px; }
-.wiz-step-label { text-align: center; flex: 1; padding: 0 2px; line-height: 1.3; }
+
+
 #mMappingsFooter { position: sticky; bottom: 0; z-index: 10; }
 
 /* ===== MOBİL ===== */
 @media (max-width: 768px) {
-  .app-content-header { padding: 8px 0.5rem !important; margin-bottom: 10px !important; }
+  
   .app-content { padding: 0 0.25rem 0.75rem !important; }
-  .breadcrumb { font-size: 0.92rem !important; line-height: 1.25; }
+  
   .navbar .nav-link { padding-left: 0.5rem; padding-right: 0.5rem; }
   .top-icon-link { width: 38px; height: 38px; }
   .top-mobile-brand { margin-left: 6px; }
@@ -961,10 +878,10 @@ body.is-admin button.w-100.admin-only { display:block !important; }
   .table th { font-size: 0.75em; }
   .card-header { padding: 0.5rem 0.75rem; }
   .card-header .card-title { font-size: 0.95em; }
-  .filter-summary { padding: 7px 9px; }
-  .filter-summary-inner { gap: 5px; }
-  .filter-chip { max-width: 100%; font-size: 0.74rem; }
-  .filter-reset-btn { width: 100%; margin-left: 0; }
+  
+  
+  
+  
   .home-nav-card { min-height: 72px; }
   .chart-box { height: 250px !important; }
   #toastContainer { left: 10px; right: 10px; max-width: none; top: auto; bottom: 70px; }
@@ -1039,17 +956,17 @@ body.is-admin button.w-100.admin-only { display:block !important; }
 /* ===== KUTU GRAFİĞİ ===== */
 .boxplot-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .boxplot-svg { display: block; width: 100%; min-width: 280px; }
-.boxplot-box { fill: rgba(13,110,253,0.12); stroke: #0d6efd; stroke-width: 2; }
-.boxplot-median { stroke: #dc3545; stroke-width: 3; stroke-linecap: round; }
-.boxplot-whisker { stroke: #6c757d; stroke-width: 1.5; stroke-dasharray: 5,3; }
-.boxplot-whisker-cap { stroke: #6c757d; stroke-width: 2; }
-.boxplot-mean { fill: #fd7e14; stroke: #fff; stroke-width: 1.5; }
-.boxplot-student { fill: #dc3545; stroke: #fff; stroke-width: 2; filter: drop-shadow(0 0 4px rgba(220,53,69,0.7)); }
-.boxplot-outlier { fill: none; stroke: #6f42c1; stroke-width: 1.5; }
-.boxplot-label { font-family: inherit; font-size: 12px; fill: #343a40; text-anchor: middle; font-weight: 600; }
-.boxplot-axis { stroke: #ced4da; stroke-width: 1.5; }
-.boxplot-gridline { stroke: #f1f3f5; stroke-width: 1; }
-.boxplot-legend { font-size: 11px; fill: #6c757d; }
+
+
+
+
+
+
+
+
+
+
+
 .boxplot-card {
   background: linear-gradient(135deg, #f8f9ff 0%, #f0f4ff 100%);
   border: 1px solid #d0d9f0;
@@ -1109,8 +1026,8 @@ body.is-admin button.w-100.admin-only { display:block !important; }
   .trend-card { padding: 12px; }
 }
 .trend-card .trend-value { font-size:1.1em; font-weight:700; }
-.trend-metric-value { font-size:1.4em; font-weight:700; color:var(--metric-color, #212529); }
-.trend-r2-value { font-size:0.9em; color:var(--metric-color, #212529); }
+
+
 .trend-card .trend-label { font-size:0.75em; }
 .trend-card .trend-indicator-sm { font-size:0.8em; }
 .trend-tone-up { color:#28a745 !important; }
@@ -1304,7 +1221,7 @@ body.is-admin button.w-100.admin-only { display:block !important; }
 .btn-danger { background-color: var(--sa-danger) !important; border-color: var(--sa-danger) !important; }
 .btn-danger:hover { background-color: #b91c1c !important; border-color: #b91c1c !important; }
 .btn-warning { background-color: #f59e0b !important; border-color: #f59e0b !important; color: #111827 !important; }
-.btn-info { background-color: var(--sa-info) !important; border-color: var(--sa-info) !important; color: #fff !important; }
+
 
 /* ===== MODALLAR — AU başlık sistemi ===== */
 .sa-modal-header {
@@ -1470,9 +1387,9 @@ body.is-admin button.w-100.admin-only { display:block !important; }
 }
 .risk-summary-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
 .risk-sum-pill { display: inline-flex; align-items: center; gap: 5px; padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: 600; }
-.rsp-high { background: rgba(220,53,69,0.12);  color: #842029; border: 1px solid rgba(220,53,69,0.25); }
-.rsp-med  { background: rgba(253,126,20,0.12);  color: #7d3a00; border: 1px solid rgba(253,126,20,0.25); }
-.rsp-low  { background: rgba(255,193,7,0.15);   color: #664d03; border: 1px solid rgba(255,193,7,0.3); }
+
+
+
 .risk-list-wrap { max-height: 420px; overflow-y: auto; padding-right: 2px; }
 .risk-list-wrap::-webkit-scrollbar { width: 5px; } .risk-list-wrap::-webkit-scrollbar-thumb { background: #dee2e6; border-radius: 4px; }
 @media (max-width: 768px) { .risk-card { flex-wrap: wrap; } .risk-score-badge { order: -1; } }
@@ -2024,20 +1941,9 @@ body.is-admin button.w-100.admin-only { display:block !important; }
 #raporRes .exam-type-block[data-exam-color-idx] {
   /* JS atayacak — renk bu blok bazında */
 }
-.exam-type-block.rapor-exam-block {
-  border-top: 3px solid var(--exam-color, #0d6efd) !important;
-  position: relative;
-}
-.exam-type-block.rapor-exam-block > .card-header {
-  background: rgba(var(--exam-color-rgb, 13,110,253),0.10) !important;
-  background: color-mix(in srgb, var(--exam-color, #0d6efd) 10%, #f8f9fa) !important;
-  border-bottom: 1px solid rgba(var(--exam-color-rgb, 13,110,253),0.25) !important;
-  border-bottom: 1px solid color-mix(in srgb, var(--exam-color, #0d6efd) 25%, #e9ecef) !important;
-}
-.exam-type-block.rapor-exam-block > .card-header .card-title {
-  color: var(--exam-color, #0d6efd) !important;
-  color: color-mix(in srgb, var(--exam-color, #0d6efd) 80%, #1a1a1a) !important;
-}
+
+
+
 
 /* =====================================================================
    TEK SINAV MODU — Özet Kart Seti (Puan/Sıra, Fark, En Başarılı, En Zayıf)
@@ -2095,17 +2001,12 @@ body.is-admin button.w-100.admin-only { display:block !important; }
   align-items: center;
   margin-top: 5px;
 }
-.sec-card .sec-chip {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 2px 8px; border-radius: 12px;
-  font-size: 0.72rem; font-weight: 700;
-  margin-top: 3px;
-}
+
 .sec-card.sec-pos .sec-value { color: #198754; }
 .sec-card.sec-neg .sec-value { color: #dc3545; }
-.sec-card.sec-pos .sec-chip  { background: rgba(25,135,84,0.12);  color: #0f5132; }
-.sec-card.sec-neg .sec-chip  { background: rgba(220,53,69,0.12);  color: #842029; }
-.sec-card.sec-neutral .sec-chip { background: rgba(108,117,125,0.15); color: #495057; }
+
+
+
 .single-exam-cards { margin-bottom: 10px; }
 .single-exam-cards .col-md-3,
 .single-exam-cards .col-md-4,
@@ -2257,11 +2158,7 @@ body.is-admin button.w-100.admin-only { display:block !important; }
 .dyb-segment.blank { background:#e9ecef; color:#6c757d; }
 
 /* ===== AdminLTE v4 uyumlu sade renk revizyonu ===== */
-.btn-primary,
-.btn-success,
-.btn-danger,
-.btn-warning,
-.btn-info {
+ .btn-primary, .btn-success, .btn-danger, .btn-warning {
   box-shadow: 0 2px 8px rgba(15,23,42,0.08);
 }
 .btn-primary { background-color: var(--sa-primary) !important; border-color: var(--sa-primary) !important; }
@@ -2271,10 +2168,10 @@ body.is-admin button.w-100.admin-only { display:block !important; }
 .card { border-color: var(--sa-border); box-shadow: var(--sa-shadow); }
 .sa-panel { border-top-width: 3px; border-top-style: solid; }
 .sa-panel-primary { border-top-color: var(--sa-primary) !important; }
-.sa-panel-success { border-top-color: var(--sa-success) !important; }
+
 .sa-panel-warning { border-top-color: var(--sa-warning) !important; }
 .sa-panel-info { border-top-color: var(--sa-info) !important; }
-.sa-panel-danger { border-top-color: var(--sa-danger) !important; }
+
 .app-main .card:not(.sys-mgmt-card):not(.risk-panel-card) > .card-header {
   min-height: 52px;
   padding: 0.72rem 1rem;
@@ -2310,10 +2207,10 @@ body.is-admin button.w-100.admin-only { display:block !important; }
   flex: 0 0 auto;
 }
 .app-main .sa-panel.sa-panel-primary > .card-header .card-title > i { background: var(--sa-primary-soft) !important; color: var(--sa-primary) !important; }
-.app-main .sa-panel.sa-panel-success > .card-header .card-title > i { background: rgba(5,150,105,0.10) !important; color: var(--sa-success) !important; }
+
 .app-main .sa-panel.sa-panel-warning > .card-header .card-title > i { background: rgba(217,119,6,0.12) !important; color: var(--sa-warning) !important; }
 .app-main .sa-panel.sa-panel-info > .card-header .card-title > i { background: rgba(8,145,178,0.10) !important; color: var(--sa-info) !important; }
-.app-main .sa-panel.sa-panel-danger > .card-header .card-title > i { background: rgba(220,38,38,0.10) !important; color: var(--sa-danger) !important; }
+
 .sa-list-header {
   --sa-list-accent: var(--sa-primary);
   --sa-list-soft: var(--sa-primary-soft);
@@ -3176,17 +3073,7 @@ body.desktop-site-mode .bottom-nav {
     linear-gradient(135deg, rgba(239,246,255,0.96), rgba(240,253,250,0.82));
   border-bottom: 1px solid rgba(226,232,240,0.72);
 }
-.card-explanation-popover-icon,
-.card-explanation-sheet-icon {
-  width: 30px;
-  height: 30px;
-  border-radius: 11px;
-  background: rgba(255,255,255,0.92);
-  color: var(--sa-primary);
-  font-size: 0.78rem;
-  box-shadow: 0 5px 14px rgba(37,99,235,0.10);
-  border: 1px solid rgba(191,219,254,0.62);
-}
+
 .card-explanation-badge {
   min-height: 17px;
   padding: 2px 8px;
@@ -3212,13 +3099,7 @@ body.desktop-site-mode .bottom-nav {
   font-size: 0.85rem;
   line-height: 1.52;
 }
-.card-explanation-lead {
-  margin: 0 0 11px;
-  color: #25364a;
-  font-size: 0.88rem;
-  font-weight: 650;
-  line-height: 1.55;
-}
+
 .card-explanation-section,
 .card-explanation-caution {
   position: relative;
@@ -3308,10 +3189,7 @@ body.desktop-site-mode .bottom-nav {
     font-size: 0.84rem;
     line-height: 1.48;
   }
-  .card-explanation-lead {
-    font-size: 0.86rem;
-    margin-bottom: 10px;
-  }
+  
   .card-explanation-section,
   .card-explanation-caution {
     padding-top: 9px;
@@ -3327,10 +3205,7 @@ body.desktop-site-mode .bottom-nav {
 
 /* ===== Popup başlık sadeleştirme ===== */
 /* Popup içindeki ekstra info ikonunu kaldırır; kart üstündeki sağ üst info simgesi kalır. */
-.card-explanation-popover-icon,
-.card-explanation-sheet-icon {
-  display: none !important;
-}
+
 .card-explanation-popover-head,
 .card-explanation-sheet-head {
   padding-left: 18px;
@@ -3726,4 +3601,31 @@ body.desktop-site-mode .bottom-nav {
 }
 @media print {
   .home-nav-card:hover, .home-nav-card:focus { transform: none !important; box-shadow: none !important; }
+}
+
+/* ===== Sistem Özeti: veri yüklenirken nötr yer tutucu (0,5 sn gecikmeyle belirir; hızlı yüklemede hiç görünmez) ===== */
+.stat-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 72px;
+  padding: 22px 24px;
+  color: var(--sa-muted);
+  font-size: 0.93rem;
+  opacity: 0;
+  animation: statLoadingIn 0.25s ease 0.5s forwards;
+}
+@keyframes statLoadingIn { to { opacity: 1; } }
+@media print {
+  .stat-loading { display: none !important; }
+}
+
+/* ===== Erişilebilirlik: hareketi azaltmayı tercih eden kullanıcılar için animasyon/geçişleri kapat ===== */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }

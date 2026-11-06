@@ -38,6 +38,13 @@ function ensureOnlineForWrite(actionLabel = 'Bu işlem'){
   return false;
 }
 
+// Yönetici gerektiren yazma işlemlerinde arayüz düzeyinde ön kontrol (asıl koruma Firebase kurallarındadır)
+function requireAdmin(actionLabel = 'Bu işlem'){
+  if(document.body.classList.contains('is-admin')) return true;
+  showToast(`${actionLabel} yalnızca yönetici tarafından yapılabilir.`, 'error');
+  return false;
+}
+
 function uConn(online){
   APP_FIREBASE_CONNECTED = online === true;
   const d=document.getElementById('connDot'),t=document.getElementById('connTxt'),b=document.getElementById('connBadge');if(!d||!t||!b)return;
@@ -221,7 +228,11 @@ function login(){
   });
 }
 
-function logout(){ auth.signOut(); location.reload(); }
+function logout(){
+  // signOut() tamamlanmadan sayfa yenilenirse oturum açık kalabilir; bitişini bekle (hata olsa da yenile)
+  const done = () => location.reload();
+  try { Promise.resolve(auth.signOut()).then(done, done); } catch(e){ done(); }
+}
 
 function togglePassword(){
   let inp = getEl('loginPass'), icon = getEl('togglePassIcon');
@@ -239,13 +250,15 @@ function openForgotPassword(e) {
 function sendPasswordReset() {
   let em = getEl('forgotEmail').value.trim(), msg = getEl('forgotMsg');
   if(!em) { msg.innerHTML = '<span class="text-danger">E-posta adresi gerekli.</span>'; return; }
-  auth.sendPasswordResetEmail(em).then(() => {
-    msg.innerHTML = '<span class="text-success"><i class="fas fa-check-circle me-1"></i>Sıfırlama bağlantısı gönderildi. Lütfen e-postanızı kontrol edin.</span>';
+  // Kullanıcı numaralandırmayı önlemek için "kayıtlı değil" durumunda da aynı genel mesaj gösterilir
+  const showSent = () => {
+    msg.innerHTML = '<span class="text-success"><i class="fas fa-check-circle me-1"></i>Bu e-posta kayıtlıysa sıfırlama bağlantısı gönderildi. Lütfen e-postanızı kontrol edin.</span>';
     setTimeout(() => hideModal('mForgot'), 3000);
-  }).catch(err => {
+  };
+  auth.sendPasswordResetEmail(em).then(showSent).catch(err => {
+    if(err.code === 'auth/user-not-found'){ showSent(); return; }
     let errMsg = 'Bir hata oluştu.';
-    if(err.code === 'auth/user-not-found') errMsg = 'Bu e-posta ile kayıtlı kullanıcı bulunamadı.';
-    else if(err.code === 'auth/invalid-email') errMsg = 'Geçersiz e-posta adresi.';
+    if(err.code === 'auth/invalid-email') errMsg = 'Geçersiz e-posta adresi.';
     msg.innerHTML = `<span class="text-danger"><i class="fas fa-times-circle me-1"></i>${errMsg}</span>`;
   });
 }
@@ -259,6 +272,36 @@ function applyTheme(){
 }
 
 function getEl(i){return document.getElementById(i);}
+
+// xlsx kütüphanesi sayfayı bloke etmesin diye asenkron yüklenir; kullanılmadan önce hazır olup olmadığı kontrol edilir
+function xlsxReady(){
+  if(typeof XLSX !== 'undefined') return true;
+  showToast('Excel kütüphanesi henüz yüklenmedi. Birkaç saniye sonra tekrar deneyin.', 'warning');
+  return false;
+}
+
+// ---- Kullanıcıya özel yerel depolama ----
+// Paylaşımlı bilgisayarda bir kullanıcının kayıtlı tercihleri (sütun eşleştirmeleri, filtre belleği) diğerine sızmasın diye
+// anahtar kullanıcı kimliğiyle (uid) ön eklenir. Oturum bilgisi yokken okuma/yazma yapılmaz.
+// Eski (kullanıcısız) anahtar varsa, ilk erişen kullanıcıya bir kez taşınır.
+function userStorageKey(base){
+  const u = (typeof auth !== 'undefined' && auth) ? auth.currentUser : null;
+  return (u && u.uid) ? base + '::' + u.uid : null;
+}
+function userStorageGet(base){
+  try {
+    const k = userStorageKey(base); if(!k) return null;
+    let v = localStorage.getItem(k);
+    if(v === null){
+      const legacy = localStorage.getItem(base);
+      if(legacy !== null){ localStorage.setItem(k, legacy); localStorage.removeItem(base); v = legacy; }
+    }
+    return v;
+  } catch(e){ return null; }
+}
+function userStorageSet(base, val){
+  try { const k = userStorageKey(base); if(k) localStorage.setItem(k, val); } catch(e){}
+}
 
 function cleanupModalState(){
   if(document.querySelector('.modal.show')) return;
@@ -310,6 +353,9 @@ document.addEventListener('hidden.bs.modal', cleanupModalState);
 let DB = { s: [], e: [] };
 
 let EXAM_META = {};
+// Sınav bilgilerinin yüklenme durumu: 'loading' | 'ready' | 'error'.
+// Sistem Özeti, veri gelmeden "Henüz sınav verisi yok" uyarısını göstermesin diye kullanılır.
+let EXAM_META_STATE = 'loading';
 
 let CACHED_RESULTS = {};
 
@@ -348,7 +394,54 @@ function rebuildDbFromCache(){
   DB.e = allE
     .filter(e => e && e.studentNo && validNos.has(e.studentNo))
     .map(e => ({...e, studentClass: normalizeClassName(e.studentClass)}));
+  _applyDerivedRanks(DB.e);
   _riskCache = null;
+}
+
+// Sınıf ve kurum sıraları (cR/cP/iR/iP), yükleme anında saklanan değerlerden değil, güncel veriden türetilir:
+// öğrenci silinince, sınıf değişince ya da birleştirmeli yüklemede bayatlamaz.
+// Puana göre azalan sıralanır; eşit puanlar aynı sırayı alır (1-2-2-4). Sınıf sırası sınav paketi + sınıf,
+// kurum sırası sınav paketi + sınıf seviyesi içinde hesaplanır (yükleme anındaki gruplamayla aynı).
+// Yalnızca bellekteki kopyalar (DB.e) güncellenir; CACHED_RESULTS ve Firebase'deki ham kayıtlara dokunulmaz.
+function _applyDerivedRanks(rows){
+  const clsGroups = new Map(), instGroups = new Map();
+  const push = (map, key, item) => { let g = map.get(key); if(!g){ g = []; map.set(key, g); } g.push(item); };
+  rows.forEach(e => {
+    if(e.abs) return;
+    const sc = typeof e.score === 'number' ? e.score : parseNumberStrict(e.score);
+    if(sc === null || !isFinite(sc)) return;
+    const item = { e, sc }, b = e.examBatchId || '';
+    push(clsGroups, b + '|' + e.studentClass, item);
+    push(instGroups, b + '|' + getGrade(e.studentClass), item);
+  });
+  const assign = (list, rk, pk) => {
+    list.sort((a, b) => b.sc - a.sc);
+    let rank = 0;
+    list.forEach((it, i) => {
+      if(i === 0 || it.sc !== list[i - 1].sc) rank = i + 1;
+      it.e[rk] = String(rank); it.e[pk] = String(list.length);
+    });
+  };
+  clsGroups.forEach(l => assign(l, 'cR', 'cP'));
+  instGroups.forEach(l => assign(l, 'iR', 'iP'));
+}
+
+// Başka bir oturumda silinen ya da değiştirilen sınav paketlerinin bellek önbelleğini geçersiz kıl
+// (karşılaştırmada boş değerler/diziler yok sayılır; Firebase boş dizileri saklamaz)
+function _metaCanon(v){
+  if(v === null || v === undefined) return undefined;
+  if(Array.isArray(v)){ if(!v.length) return undefined; return '[' + v.map(x => _metaCanon(x)).join(',') + ']'; }
+  if(typeof v === 'object'){
+    const ks = Object.keys(v).sort().map(k => { const c = _metaCanon(v[k]); return c === undefined ? null : JSON.stringify(k) + ':' + c; }).filter(Boolean);
+    return ks.length ? '{' + ks.join(',') + '}' : undefined;
+  }
+  return JSON.stringify(v);
+}
+function _invalidateStaleBatchCache(prevMeta, nextMeta){
+  Object.keys(CACHED_RESULTS || {}).forEach(bId => {
+    if(!nextMeta[bId]){ delete CACHED_RESULTS[bId]; return; }
+    if(prevMeta && prevMeta[bId] && _metaCanon(prevMeta[bId]) !== _metaCanon(nextMeta[bId])) delete CACHED_RESULTS[bId];
+  });
 }
 
 function scheduleRaporInit(delay = 150){
@@ -377,7 +470,9 @@ async function init(){
   }, err => showToast('Öğrenci verileri okunamadı: ' + err.message, 'error'));
 
   database.ref('db_v2/examMeta').on('value', async snap => {
-    EXAM_META = snap.val() || {}; uDrp(); rTabE(); uStat();
+    let _nextMeta = snap.val() || {};
+    _invalidateStaleBatchCache(EXAM_META, _nextMeta);
+    EXAM_META = _nextMeta; EXAM_META_STATE = 'ready'; uDrp(); rTabE(); uStat();
     let allIds = Object.keys(EXAM_META);
     try {
       if(allIds.length) await fetchBatches(allIds, { showLoader:false });
@@ -391,7 +486,7 @@ async function init(){
     scheduleRaporInit();
     if(typeof renderRiskPanel === 'function') renderRiskPanel();
     ld(0);
-  }, err => showToast('Sınav bilgileri okunamadı: ' + err.message, 'error'));
+  }, err => { EXAM_META_STATE = 'error'; uStat(); showToast('Sınav bilgileri okunamadı: ' + err.message, 'error'); });
 }
 
 async function fetchBatches(batchIds, options = {}) {
@@ -458,7 +553,6 @@ function refreshAfterAnalysisRender(){
 async function reqAnl() {
   let eT = getEl('aEx').value, dt = getAnalysisDateValue(), aT = getEl('aType').value, sub = getSelectValueIfEnabled('aSub');
   let needed = [];
-  if(typeof updateFilterSummary === 'function') updateFilterSummary();
 
   // Risk analizi tüm geçmiş sonuçlardan üretildiği için eksik paket varsa bu ekranda tamamlanır.
   if(aT === 'risk') {
@@ -597,7 +691,6 @@ async function reqUI() {
   }
   if(typeEl) typeEl.dataset.lastType = currentType;
   uUI();
-  if(typeof updateFilterSummary === 'function') updateFilterSummary();
   await reqAnl();
 }
 
@@ -656,10 +749,6 @@ function parseExamDate(value){
 function normalizeExamDate(value){
   let parsed = parseExamDate(value);
   return parsed ? parsed.value : '';
-}
-
-function isValidExamDate(value){
-  return !!parseExamDate(value);
 }
 
 function getClassParts(cls){
@@ -787,11 +876,13 @@ function safeFileName(value, fallback = 'rapor'){
 }
 
 // ---- buildStuMap: O(1) öğrenci araması için Map index ----
-// DB.s değiştiğinde çağrılır; _stuMap._ts !== DB.s.length ile stale check yapılır
+// DB.s değiştiğinde (yeni dizi atandığında ya da _stuMapCache=null yapıldığında) yeniden kurulur
 let _stuMapCache = null;
 function getStuMap(){
-  let sig = (DB.s || []).map(s => `${s.no}|${s.name}|${s.class}`).join('¶');
-  if(_stuMapCache && _stuMapCache._sig === sig) return _stuMapCache._map;
-  _stuMapCache = { _map: new Map((DB.s || []).map(s=>[s.no, s])), _sig: sig };
+  // Önbellek DB.s dizisinin kimliği ve uzunluğuyla doğrulanır (DB.s her değişimde yeni dizi olarak atanıyor;
+  // eski sürümdeki her çağrıda tüm öğrenci listesini birleştiren imza hesabı döngü içinde çok pahalıydı).
+  const src = DB.s || [];
+  if(_stuMapCache && _stuMapCache._src === src && _stuMapCache._len === src.length) return _stuMapCache._map;
+  _stuMapCache = { _map: new Map(src.map(s=>[s.no, s])), _src: src, _len: src.length };
   return _stuMapCache._map;
 }
