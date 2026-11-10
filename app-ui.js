@@ -1595,79 +1595,79 @@ const CARD_EXPLANATIONS = {
   trend_direction: {
     title: 'Genel Yön (Trend)',
     badge: 'Trend',
-    summary: 'Seçilen verinin genel gidiş yönünü gösterir: yükseliyor, düşüyor, sabit ya da dalgalı.',
-    interpretation: 'Yön, eğimin istatistiksel anlamlılığına göre verilir (t-testi, en az 4 sınav ve p≤0.10). Anlamlı değilse "Belirgin trend yok" yazılır; yön yorumu yapılmaz.',
-    caution: 'Az sınavda veya çok dalgalı sonuçlarda kesin karar değil, izleme ipucu olarak değerlendirilmelidir. Öğrenci trendi sınav zorluğundan; sınıf ve ders ortalaması trendi ayrıca her sınavdaki farklı öğrenci kümesinden etkilenebilir.'
+    summary: 'Sonuçların zamanla yükselip yükselmediğini ya da düşüp düşmediğini gösterir.',
+    interpretation: 'Yön, değişim tesadüfle açıklanamayacak kadar belirginse yazılır (en az 4 sınav). Aksi halde “Belirgin trend yok” ya da “Veri yetersiz” yazar ve yön söylenmez.',
+    caution: 'Kesin karar değil, izleme ipucudur. Sınav zorluğu öğrenci sonucunu; sınıf/ders ortalamasında ise her sınava giren farklı öğrenciler sonucu etkileyebilir.'
   },
   total_change: {
     title: 'Toplam Değişim',
     badge: 'Trend',
-    summary: 'İlk sınavdan son sınava kadar beklenen toplam net/puan değişimini gösterir.',
-    interpretation: 'Pozitif değer gelişimi, negatif değer gerileme eğilimini anlatır.',
-    caution: 'Sınavlar çok zikzaklıysa toplam değişim R² ile birlikte okunmalıdır.'
+    summary: 'İlk sınavdan son sınava kadar net ya da puanın toplam ne kadar değiştiğini gösterir (trend çizgisine göre).',
+    interpretation: 'Artı değer yükselmeyi, eksi değer düşmeyi gösterir.',
+    caution: 'Yön “Belirgin trend yok” ise bu sayı kesin bir değişim sayılmamalı; tesadüfi dalgalanma olabilir.'
   },
   change_per_exam: {
     title: 'Sınav Başına Değişim',
     badge: 'Trend',
-    summary: 'Her sınavda ortalama kaç net ya da puan değiştiğini gösterir.',
-    interpretation: '+ değer ilerleme, - değer düşüş eğilimini gösterir.',
-    caution: 'Bu değer tek tek iki sınav farkı değil, tüm sürece en yakın çizginin eğimidir.'
+    summary: 'Her yeni sınavda net ya da puanın ortalama olarak ne kadar arttığını veya azaldığını gösterir.',
+    interpretation: '+ değer yükselme, − değer düşme yönündedir.',
+    caution: 'İki sınav arasındaki farkı değil, tüm sınavlara en iyi uyan çizginin eğimini gösterir. Trend anlamlı değilse küçük sayılar tesadüf olabilir.'
   },
   trend_reliability: {
     title: 'Trend Güvenilirliği (R²)',
     badge: 'Güvenilirlik',
-    summary: 'Sonuçların düzenli bir artış veya düşüş çizgisine ne kadar uyduğunu gösterir.',
-    interpretation: 'R², trendin sonuçlardaki değişimin ne kadarını açıkladığını gösterir (1 = tamamı). Güvenilirlik için p-değerine bakılır: p≤0.10 ve en az 4 sınav gerekir.',
-    caution: 'R² tahmin doğruluğu değildir; açıklanan varyans oranıdır. R² düşükse yön oku kesin karar değil, öğretmen için izleme sinyalidir.'
+    summary: 'Sonuçların düzgün bir yükseliş ya da düşüş çizgisine ne kadar uyduğunu gösterir.',
+    interpretation: 'R², değişimin yüzde kaçının bu çizgiyle açıklandığını söyler (1 = hepsi). Yanında “p” değeri varsa, 0,10 ve altı “bu görünüm tesadüf olmayabilir” demektir; en az 4 sınav da gerekir.',
+    caution: 'R², “tahmin doğruluğu” değildir. R² yüksek görünse bile az sınavla yön kesin sayılmaz.'
   },
   current_performance: {
     title: 'Güncel Performans (EWMA)',
     badge: 'Güncel durum',
-    summary: 'Son sınavlara daha fazla ağırlık vererek öğrencinin, sınıfın veya dersin güncel seviyesini gösterir.',
-    interpretation: 'Klasik ortalamadan daha hızlı tepki verir; son durumdaki değişimi daha görünür kılar.',
-    caution: 'Tek bir ani sonuç, genel tablo ve katılım bilgisiyle birlikte değerlendirilmelidir.'
+    summary: 'Son sınavlara daha çok ağırlık vererek öğrencinin, sınıfın veya dersin güncel seviyesini gösterir.',
+    interpretation: 'Klasik ortalamadan daha hızlı tepki verir; son dönemdeki değişim daha görünür olur.',
+    caution: 'Tek bir sınavın ani sonucu bu değeri çok oynatabilir; katılım ve genel tabloyla birlikte değerlendirin.'
   },
   surprise: {
     title: 'Sürpriz Payı (RMSE)',
     badge: 'Dalgalanma',
-    summary: 'Gerçek sonuçların beklenen trend çizgisinden ortalama ne kadar saptığını gösterir.',
-    interpretation: 'Düşük değer daha düzenli, yüksek değer daha dalgalı performans anlamına gelir.',
-    caution: 'Sürpriz payı yüksekse trend yorumları daha temkinli yapılmalıdır. Etiket, RMSE\'nin aynı sınavlardaki öğrenciler arası standart sapmaya oranına göre verilir; eşikler sezgiseldir, kesin bilimsel sınır değildir.'
+    summary: 'Sonuçların, kendi trend çizgisinden ortalama ne kadar saptığını gösterir.',
+    interpretation: 'Küçük değer: sonuçlar düzenli. Büyük değer: sınavdan sınava iniş çıkış fazla. Etiket (Çok Düşük / Düşük / Orta / Yüksek), bu sapmanın aynı sınavlardaki öğrenciler arası farkın kaçta kaçı olduğuna göre verilir.',
+    caution: 'Etiket sınırları yaklaşık kabullerdir, kesin bilimsel sınır değildir. Sürpriz payı yüksekse trend yorumlarını daha temkinli yapın.'
   },
   position_z: {
     title: 'Ortalamaya Göre Konum',
     badge: 'Karşılaştırma',
     summary: 'Öğrencinin sınıf veya kurum ortalamasına göre yerini gösterir.',
-    interpretation: '0 ortalama düzeyidir; + değer ortalamanın üstünü, - değer ortalamanın altını anlatır. Standart sapma, gruptaki tipik uzaklığı ifade eder.',
-    caution: 'Grup küçükse veya sonuçlar birbirine çok yakınsa bu gösterge tek başına öğrenci etiketi olarak kullanılmamalıdır. Not: risk analizinde standart sapma grubun tamamı üzerinden (n), diğer ekranlarda örneklem olarak (n−1) hesaplanır; küçük gruplarda değerler biraz farklı çıkabilir.'
+    interpretation: '0 ortalamadır; + üstü, − altı demektir. Sayı, ortalamadan kaç “standart sapma” uzakta olduğunu söyler: +1, ortalamanın bir standart sapma üstü demektir.',
+    caution: 'Grup küçükse tek başına öğrenci etiketi olarak kullanmayın. Risk analizinde standart sapma “n”, diğer ekranlarda “n−1” ile hesaplanır; küçük gruplarda küçük farklar olabilir.'
   },
   rank_position: {
     title: 'Sıralama Konumu',
     badge: 'Sıra',
-    summary: 'Öğrencinin sınıf veya kurum içindeki sıra bilgisini gösterir.',
-    interpretation: 'Sıra değerinde küçük sayı daha iyi konumu ifade eder.',
-    caution: 'Sıra, net/puan farkının büyüklüğünü göstermez; mutlaka net veya puanla birlikte okunmalıdır.'
+    summary: 'Öğrencinin sınıf veya kurum içindeki sırasını gösterir.',
+    interpretation: 'Küçük sayı daha iyi sıradır. Puanı aynı olan öğrenciler aynı sırayı alır (örn. 1, 2, 2, 4). Sıralar her seferinde güncel öğrenci ve sınıf bilgisine göre yeniden hesaplanır.',
+    caution: 'Sıra, farkın büyüklüğünü göstermez; net veya puanla birlikte okuyun. Birden çok sınavın ortalamasıyla yapılan sıralamalara, sınavların en az yarısına giren öğrenciler katılır.'
   },
   previous_delta: {
     title: 'Önceki Sınava Fark',
     badge: 'Karşılaştırma',
-    summary: 'Seçili sınavın hemen önceki sınava göre artışını veya düşüşünü gösterir.',
-    interpretation: 'Net ve puanda artış iyiye işaret eder. Sıralamada sayının küçülmesi iyileşme anlamına gelir.',
-    caution: 'İki sınav farkı trend değildir; sınav zorluğu ve konu kapsamı sonucu etkileyebilir.'
+    summary: 'Seçili sınavın bir önceki sınava göre artışını veya düşüşünü gösterir.',
+    interpretation: 'Net ve puanda artış iyidir. Sıralamada sayının küçülmesi de iyileşmedir.',
+    caution: 'İki sınav arasındaki fark bir trend değildir; sınavların zorluğu ve konuları farklı olabilir.'
   },
   distribution_sd: {
     title: 'Ortalamadan Uzaklık (Standart Sapma)',
     badge: 'Dağılım',
-    summary: 'Grup sonuçlarının ortalamanın etrafında ne kadar dağıldığını gösterir.',
-    interpretation: 'Değer büyüdükçe öğrenciler arası seviye farkı artar; değer küçüldükçe sonuçlar birbirine yaklaşır.',
-    caution: 'Çok küçük gruplarda tek bir uç sonuç dağılımı kolayca değiştirebilir.'
+    summary: 'Sonuçların ortalamanın etrafında ne kadar dağıldığını gösterir.',
+    interpretation: 'Büyük değer: öğrenciler arasındaki seviye farkı fazla. Küçük değer: sonuçlar birbirine yakın. Birden çok sınav seçiliyse her öğrenci, kendi ortalamasıyla bir kez sayılır.',
+    caution: 'Çok küçük gruplarda tek bir uç sonuç değeri kolayca değiştirebilir.'
   },
   distribution_cv: {
     title: 'Dağılım / Homojenlik',
     badge: 'Dağılım',
-    summary: 'Öğrenciler birbirine yakın mı, yoksa seviye farkı fazla mı, bunu gösterir.',
-    interpretation: 'Değer büyüdükçe grup daha heterojen; değer küçüldükçe daha homojen kabul edilir.',
-    caution: 'Ortalama çok düşükse CV olduğundan yüksek görünebilir; öğrenci sayısıyla birlikte okunmalıdır. Sınıflandırma eşikleri (%10 / %20 / %35) sezgiseldir, kesin bilimsel sınır değildir.'
+    summary: 'Öğrencilerin birbirine yakın mı, yoksa seviye farkının fazla mı olduğunu gösterir.',
+    interpretation: 'Standart sapmanın ortalamaya oranıdır (%). Küçükse grup homojen, büyükse heterojendir. Çok sınavda öğrenci başına ortalamalar kullanılır; sınav zorluk farkı “seviye farkı” gibi görünmez.',
+    caution: 'Ortalama çok düşükse oran yüksek çıkar. Etiket sınırları (%10 / %20 / %35) yaklaşık kabullerdir.'
   },
   median: {
     title: 'Medyan Net',
@@ -1680,22 +1680,22 @@ const CARD_EXPLANATIONS = {
     title: 'Çeyrekler Arası Aralık (IQR)',
     badge: 'Dağılım',
     summary: 'Ortadaki yüzde 50 öğrencinin hangi genişlikte bir aralığa yayıldığını gösterir.',
-    interpretation: 'Büyük IQR, orta grubun bile dağınık olduğunu; küçük IQR, orta grubun daha toplu olduğunu gösterir.',
-    caution: 'IQR uç değerleri dışarıda bırakır; en yüksek ve en düşük öğrencileri tek başına anlatmaz.'
+    interpretation: 'Büyük IQR, ortadaki öğrencilerin bile dağınık olduğunu gösterir. IQR medyana oranlanıp “Homojen / Orta düzeyde dağılım / Seviye farkı belirgin / Seviye farkı çok yüksek” etiketi verilir.',
+    caution: 'IQR uç değerleri dışarıda bırakır; en yüksek ve en düşük öğrencileri anlatmaz. Etiket sınırları (0,20 / 0,30 / 0,40) yaklaşık kabullerdir.'
   },
   effect_size: {
-    title: "Etki Büyüklüğü (Hedges g)",
+    title: 'Etki Büyüklüğü (Hedges g)',
     badge: 'Karşılaştırma',
-    summary: 'Şubeler ya da gruplar arasındaki farkın gerçekten güçlü olup olmadığını gösterir (küçük örneklem düzeltmeli Cohen d, yani Hedges g).',
-    interpretation: 'Yaklaşık 0.20 küçük, 0.50 orta, 0.80 ve üzeri büyük fark olarak okunabilir.',
-    caution: 'Ortalama farkı tek başına yeterli değildir; grupların kendi içindeki dağılımı da dikkate alınır. En yüksek ortalamalı grup veriden seçildiği için fark olduğundan büyük görünebilir (seçim etkisi).'
+    summary: 'İki grup arasındaki farkın gerçekten büyük olup olmadığını gösterir.',
+    interpretation: 'Yaklaşık 0,2 küçük, 0,5 orta, 0,8 ve üzeri büyük fark sayılır. “g”, küçük gruplar için düzeltilmiş Cohen d değeridir; her grupta en az 10 öğrenci gerekir.',
+    caution: 'En yüksek ortalamalı grup veriden seçildiği için fark gerçekte olduğundan büyük görünebilir; öğrenci sayısına da bakın.'
   },
   group_difference: {
     title: 'Gruplar Arası Fark',
     badge: 'Karşılaştırma',
-    summary: 'En yüksek ortalamalı grup ile en düşük ortalamalı grup arasındaki ham net/puan farkını gösterir.',
-    interpretation: 'Fark büyüdükçe gruplar arasındaki seviye ayrımı artar.',
-    caution: 'Ham fark dağılımı hesaba katmaz; varsa Hedges g (etki büyüklüğü) ile birlikte yorumlanmalıdır.'
+    summary: 'En yüksek ve en düşük ortalamalı gruplar arasındaki net ya da puan farkını gösterir.',
+    interpretation: 'Fark büyüdükçe gruplar arasındaki seviye farkı artar.',
+    caution: 'Bu ham farktır; grupların içindeki dağılımı hesaba katmaz. Etki büyüklüğü (Hedges g) ile birlikte yorumlayın.'
   },
   branch_institution_delta: {
     title: 'Şube - Kurum Farkı',
@@ -1715,8 +1715,36 @@ const CARD_EXPLANATIONS = {
     title: 'Puan ve Sıra',
     badge: 'Öğrenci',
     summary: 'Seçili sınavdaki puan, toplam net ve varsa sınıf/kurum sırasını birlikte gösterir.',
-    interpretation: 'Puan mutlak başarıyı, sıra ise aynı sınava giren grup içindeki göreli konumu anlatır.',
+    interpretation: 'Puan mutlak başarıyı, sıra ise aynı sınava giren grup içindeki göreli konumu anlatır. Puanı aynı olan öğrenciler aynı sırayı alır.',
     caution: 'Tek sınavlık sonuç trend değildir; önceki sınav farkı ve genel gidişle birlikte okunmalıdır.'
+  },
+  progress_slope: {
+    title: 'İlerleme / Gerileme (SS)',
+    badge: 'Trend',
+    summary: 'Sınavlar boyunca grup içindeki yerini en çok yükselten (ya da düşüren) öğrenciyi gösterir.',
+    interpretation: 'Her sınavda öğrencinin grup ortalamasına göre yerine bakılır; böylece kolay ya da zor sınav fark yaratmaz. “SS” standart sapmadır: +0,50 SS, öğrencinin yerini her sınavda ortalama yarım SS yukarı taşıdığı anlamına gelir. En az 4 sınava giren öğrenciler değerlendirilir.',
+    caution: 'Çok öğrenci arasından en uçtaki seçildiği için bu bir hüküm değil, “bakılması gereken aday” bilgisidir.'
+  },
+  subject_strength: {
+    title: 'En Başarılı / En Zayıf Ders',
+    badge: 'Karşılaştırma',
+    summary: 'Öğrencinin hangi derste grubundan daha iyi, hangisinde daha zayıf olduğunu gösterir.',
+    interpretation: 'Dersler, öğrencinin sınıf ve kurum ortalamasından farkına göre sıralanır. Soru sayıları farklı olduğundan fark, o dersteki öğrenciler arası dağılıma oranlanır; kartta görünen net farkları ise ham nettir.',
+    caution: 'Tek sınava dayanır; karar vermeden önce diğer sınavlara da bakın.'
+  },
+  composite_class: {
+    title: 'En Güçlü / En Zayıf Sınıf (Bileşik)',
+    badge: 'Karşılaştırma',
+    summary: 'Tüm derslere birlikte bakıldığında sınıfın diğer sınıflara göre genel yerini gösterir.',
+    interpretation: 'Her ders için sınıfın diğer sınıflardan farkı (g) bulunur, sonra bunların ortalaması alınır. + diğerlerinin üstünde, − altında demektir. Aynı ölçek olduğu için dersler birbiriyle kıyaslanabilir.',
+    caution: 'En az 2 ders ve her grupta en az 10 öğrenci gerekir. Bazı derslerde çok iyi, bazılarında zayıfsa tek sayı bunu gizler; tabloya da bakın.'
+  },
+  class_spread: {
+    title: 'Sınıflar Arası Ayrışma',
+    badge: 'Karşılaştırma',
+    summary: 'Bir derste sınıfların birbirinden ne kadar ayrıştığını gösterir.',
+    interpretation: 'Δg, o dersteki en yüksek ve en düşük sınıfın g değerleri arasındaki farktır. Büyükse sınıflar bu derste belirgin biçimde ayrışır; küçükse birbirine yakındır.',
+    caution: 'Her sınıfta en az 10 öğrenci gerekir; sınıf ve öğrenci sayısı azsa dikkatli yorumlayın.'
   }
 };
 
@@ -1777,6 +1805,10 @@ function _cardExplanationKeyFromText(text){
   if(n.includes('subeler arasi fark') || n.includes('siniflar arasi fark')) return 'group_difference';
   if(n.includes('sube') && n.includes('kurum') && n.includes('fark')) return 'branch_institution_delta';
   if(n.includes('kutu grafigi') || n.includes('box plot')) return 'boxplot';
+  if(n.includes('en fazla ilerleme') || n.includes('en fazla gerileme')) return 'progress_slope';
+  if(n.includes('en basarili ders') || n.includes('en zayif ders')) return 'subject_strength';
+  if(n.includes('bilesik') && n.includes('sinif')) return 'composite_class';
+  if(n.includes('ayrisma')) return 'class_spread';
   return '';
 }
 

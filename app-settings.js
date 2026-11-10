@@ -469,9 +469,22 @@ function buildMappingUI() {
       </div>`;
     getEl('mMappingsFooter').innerHTML = `<button type="button" class="btn btn-secondary" onclick="cancelUpload()">İptal</button><button type="button" class="btn btn-primary" onclick="processMappings()">Onayla ve Analiz Et <i class="fas fa-arrow-right ms-1"></i></button>`;
   } else {
-    wizardStep = 0; renderWizardStep();
+    wizardStep = 0; wizardManualCounts = { dP: '', pP: '', gP: '' }; renderWizardStep();
     getEl('mMappingsFooter').innerHTML = `<button type="button" class="btn btn-secondary" onclick="cancelUpload()">İptal</button><div class="ms-auto d-flex mapping-footer-actions"><button type="button" class="btn btn-outline-secondary" id="wizBtnBack" onclick="wizardNav(-1)" style="display:none;"><i class="fas fa-arrow-left me-1"></i>Geri</button><button type="button" class="btn btn-primary" id="wizBtnNext" onclick="wizardNav(1)">İleri <i class="fas fa-arrow-right ms-1"></i></button><button type="button" class="btn btn-success" id="wizBtnDone" onclick="processMappings()" style="display:none;">Onayla ve Analiz Et <i class="fas fa-check ms-1"></i></button></div>`;
   }
+}
+
+// Katılımcı (kişi) sayıları sınava özgüdür: kalıcı hafızaya yazılmaz, yalnızca açık sihirbaz oturumunda tutulur
+let wizardManualCounts = { dP: '', pP: '', gP: '' };
+function _manualCountHtml(k) {
+  const v = wizardManualCounts[k] || '';
+  return `<div class="input-group input-group-sm mt-1"><span class="input-group-text">veya elle</span><input type="number" min="1" max="999999999" step="1" inputmode="numeric" id="map_e_${k}_manual" class="form-control" placeholder="Tüm öğrenciler için aynı sayı" value="${escapeHtml(v)}"></div>`;
+}
+// Elle girilen sayıyı doğrula: boş = kullanılmaz; aksi halde pozitif tam sayı olmalı. Geçersizse null döner.
+function _parseManualCount(v) {
+  v = String(v == null ? '' : v).trim();
+  if (v === '') return '';
+  return /^[1-9]\d{0,8}$/.test(v) ? v : null;
 }
 
 const WIZARD_STEPS = [ { id:'wiz-step-0', title:'1. Sınav Genel Bilgileri' }, { id:'wiz-step-1', title:'2. Sabit Excel Sütunları' }, { id:'wiz-step-2', title:'3. Ders Netleri Eşleştirmesi' }, { id:'wiz-step-3', title:'4. Dereceler (İsteğe Bağlı)' } ];
@@ -491,10 +504,10 @@ function renderWizardStep() {
     stepHtml = `<div class="wizard-section"><h6><i class="fas fa-columns me-1"></i> Sabit Excel Sütunları</h6>
       <div class="row"><div class="col-md-4"><div class="mb-3"><label class="form-label">Öğrenci No Sütunu <span class="text-danger">*</span></label><select id="map_e_no" class="form-select">${buildOptions(h, saved.no||'no')}</select></div></div><div class="col-md-4"><div class="mb-3"><label class="form-label">Toplam Net Sütunu <span class="text-danger">*</span></label><select id="map_e_tnet" class="form-select">${buildOptions(h, saved.tnet||'toplam')}</select></div></div><div class="col-md-4"><div class="mb-3"><label class="form-label">Toplam Puan Sütunu <span class="text-danger">*</span></label><select id="map_e_score" class="form-select">${buildOptions(h, saved.score||'puan')}</select></div></div></div></div>`;
   } else if(wizardStep === 2) {
-    stepHtml = `<div class="wizard-section"><div class="d-flex justify-content-between align-items-center mb-3"><h6 class="mb-0 border-0"><i class="fas fa-book-open me-1"></i> Ders Netleri Eşleştirmesi</h6><button class="btn btn-success btn-sm" onclick="addSubjectRow()"><i class="fas fa-plus me-1"></i>Ders Ekle</button></div><p class="text-muted wizard-subject-note">Sadece analize dahil etmek istediğiniz dersleri seçin ve isimlendirin. Eşleştirilmeyenler tabloda — olarak görünür.</p><div id="subjectMapContainer"></div></div>`;
+    stepHtml = `<div class="wizard-section"><div class="d-flex justify-content-between align-items-center mb-3"><h6 class="mb-0 border-0"><i class="fas fa-book-open me-1"></i> Ders Netleri Eşleştirmesi</h6><button class="btn btn-success btn-sm" onclick="addSubjectRow()"><i class="fas fa-plus me-1"></i>Ders Ekle</button></div><p class="text-muted wizard-subject-note">Sadece analize dahil etmek istediğiniz dersleri seçin ve isimlendirin. Eşleştirilmeyenler tabloda — olarak görünür.</p><div id="subjectMapContainer"></div><datalist id="subjNameList">${_subjectNameOptions()}</datalist></div>`;
   } else if(wizardStep === 3) {
-    stepHtml = `<div class="wizard-section"><h6><i class="fas fa-medal me-1"></i> Dereceler (İsteğe Bağlı)</h6><p class="text-muted wizard-note">Sınıf ve Kurum sıralaması artık sistem tarafından otomatik hesaplanmaktadır. Buradan yalnızca İlçe, İl ve Genel sıralamayı Excel'den alabilirsiniz.</p>
-      <div class="row"><div class="col-md-6"><div class="mb-3"><label class="form-label"><i class="fas fa-city me-1"></i>İlçe Sırası Sütunu</label><select id="map_e_dR" class="form-select">${buildOptions(h, saved.dR||'ilçe sıra', true)}</select></div></div><div class="col-md-6"><div class="mb-3"><label class="form-label">İlçe Kişi Sayısı Sütunu</label><select id="map_e_dP" class="form-select">${buildOptions(h, saved.dP||'', true)}</select></div></div><div class="col-md-6"><div class="mb-3"><label class="form-label"><i class="fas fa-map-marker-alt me-1"></i>İl Sırası Sütunu</label><select id="map_e_pR" class="form-select">${buildOptions(h, saved.pR||'il sıra', true)}</select></div></div><div class="col-md-6"><div class="mb-3"><label class="form-label">İl Kişi Sayısı Sütunu</label><select id="map_e_pP" class="form-select">${buildOptions(h, saved.pP||'', true)}</select></div></div><div class="col-md-6"><div class="mb-3"><label class="form-label"><i class="fas fa-globe-europe me-1"></i>Genel Sırası Sütunu</label><select id="map_e_gR" class="form-select">${buildOptions(h, saved.gR||'genel sıra', true)}</select></div></div><div class="col-md-6"><div class="mb-3"><label class="form-label">Genel Kişi Sayısı Sütunu</label><select id="map_e_gP" class="form-select">${buildOptions(h, saved.gP||'', true)}</select></div></div></div></div>`;
+    stepHtml = `<div class="wizard-section"><h6><i class="fas fa-medal me-1"></i> Dereceler (İsteğe Bağlı)</h6><p class="text-muted wizard-note">Sınıf ve Kurum sıralaması artık sistem tarafından otomatik hesaplanmaktadır. Buradan yalnızca İlçe, İl ve Genel sıralamayı Excel'den alabilirsiniz. Kişi (katılımcı) sayısı için Excel sütunu seçebilir ya da elle bir sayı girebilirsiniz: Excel'de o satırda değer varsa o kullanılır, yoksa elle girilen sayı yazılır.</p>
+      <div class="row"><div class="col-md-6"><div class="mb-3"><label class="form-label"><i class="fas fa-city me-1"></i>İlçe Sırası Sütunu</label><select id="map_e_dR" class="form-select">${buildOptions(h, saved.dR||'ilçe sıra', true)}</select></div></div><div class="col-md-6"><div class="mb-3"><label class="form-label">İlçe Kişi Sayısı Sütunu</label><select id="map_e_dP" class="form-select">${buildOptions(h, saved.dP||'', true)}</select>${_manualCountHtml('dP')}</div></div><div class="col-md-6"><div class="mb-3"><label class="form-label"><i class="fas fa-map-marker-alt me-1"></i>İl Sırası Sütunu</label><select id="map_e_pR" class="form-select">${buildOptions(h, saved.pR||'il sıra', true)}</select></div></div><div class="col-md-6"><div class="mb-3"><label class="form-label">İl Kişi Sayısı Sütunu</label><select id="map_e_pP" class="form-select">${buildOptions(h, saved.pP||'', true)}</select>${_manualCountHtml('pP')}</div></div><div class="col-md-6"><div class="mb-3"><label class="form-label"><i class="fas fa-globe-europe me-1"></i>Genel Sırası Sütunu</label><select id="map_e_gR" class="form-select">${buildOptions(h, saved.gR||'genel sıra', true)}</select></div></div><div class="col-md-6"><div class="mb-3"><label class="form-label">Genel Kişi Sayısı Sütunu</label><select id="map_e_gP" class="form-select">${buildOptions(h, saved.gP||'', true)}</select>${_manualCountHtml('gP')}</div></div></div></div>`;
   }
   
   b.innerHTML = progHtml + stepHtml;
@@ -521,16 +534,38 @@ function saveWizardStepData() {
   let saved = {}; try { saved = JSON.parse(userStorageGet('map_e') || '{}'); } catch(e){}
   if(wizardStep === 0) { let t = getEl('map_e_type'), d = getEl('map_e_date'), p = getEl('map_e_pub'), ma = getEl('map_e_mark_absent'); if(t) saved.type = t.value; if(d) saved.date = d.value; if(p) saved.pub = p.value; if(ma) saved.markAbsent = ma.checked; }
   else if(wizardStep === 1) { let no = getEl('map_e_no'), tn = getEl('map_e_tnet'), sc = getEl('map_e_score'); if(no) saved.no = no.value; if(tn) saved.tnet = tn.value; if(sc) saved.score = sc.value; }
-  else if(wizardStep === 2) { let rows = document.querySelectorAll('.subj-map-row'), subs = []; rows.forEach(r => { let c = r.querySelector('.map-subj-col').value, n = r.querySelector('.map-subj-name').value.trim(); if(c && n) subs.push({col:c,name:n}); }); saved.subs = subs; }
-  else if(wizardStep === 3) { ['dR','dP','pR','pP','gR','gP'].forEach(k => { let el = getEl('map_e_'+k); if(el) saved[k] = el.value; }); ['cR','cP','iR','iP'].forEach(k => { delete saved[k]; }); }
+  else if(wizardStep === 2) { let rows = document.querySelectorAll('.subj-map-row'), subs = []; rows.forEach(r => { let c = r.querySelector('.map-subj-col').value, n = r.querySelector('.map-subj-name').value.trim(); if(c && n) subs.push({col:c,name:n}); }); saved.subs = subs; rememberSubjectNames(subs.map(x => x.name)); }
+  else if(wizardStep === 3) { ['dP','pP','gP'].forEach(k => { let m = getEl('map_e_'+k+'_manual'); if(m) wizardManualCounts[k] = m.value.trim(); }); ['dR','dP','pR','pP','gR','gP'].forEach(k => { let el = getEl('map_e_'+k); if(el) saved[k] = el.value; }); ['cR','cP','iR','iP'].forEach(k => { delete saved[k]; }); }
   try { userStorageSet('map_e', JSON.stringify(saved)); } catch(e) {}
+}
+
+// ---- Ders adı hafızası: daha önce yazılan/sistemde kayıtlı ders adları yazarken öneri olarak sunulur (kullanıcıya özel) ----
+const SUBJ_NAME_MEMORY_KEY = 'subjNameMemory';
+function _loadSubjectNames() {
+  try { const a = JSON.parse(userStorageGet(SUBJ_NAME_MEMORY_KEY) || '[]'); return Array.isArray(a) ? a.filter(x => typeof x === 'string' && x.trim()) : []; }
+  catch(e) { return []; }
+}
+function _subjectNameSuggestions() {
+  const seen = new Set(), out = [];
+  const add = n => { n = toTitleCase(String(n || '').trim()); if(!n) return; const k = n.toLocaleLowerCase('tr-TR'); if(seen.has(k)) return; seen.add(k); out.push(n); };
+  _loadSubjectNames().forEach(add);
+  Object.values(EXAM_META || {}).forEach(m => (Array.isArray(m.subjects) ? m.subjects : []).forEach(add));
+  return out.sort((a, b) => a.localeCompare(b, 'tr'));
+}
+function _subjectNameOptions() {
+  return _subjectNameSuggestions().map(n => `<option value="${escapeHtml(n)}"></option>`).join('');
+}
+function rememberSubjectNames(names) {
+  const mem = _loadSubjectNames(), seen = new Set(mem.map(x => x.toLocaleLowerCase('tr-TR')));
+  (names || []).forEach(n => { n = toTitleCase(String(n || '').trim()); if(!n) return; const k = n.toLocaleLowerCase('tr-TR'); if(!seen.has(k)) { seen.add(k); mem.push(n); } });
+  userStorageSet(SUBJ_NAME_MEMORY_KEY, JSON.stringify(mem.slice(-100)));
 }
 
 function addSubjectRow(selectedCol = '', typedName = '') {
   let div = document.createElement('div'); div.className = 'subj-map-row';
   let html = `<select class="form-select form-select-sm map-subj-col">${optionHtml('', '-- Excel Sütunu Seçin --')}`;
   currentHeaders.forEach(h => { html += optionHtml(h, h, h === selectedCol); });
-  html += `</select><i class="fas fa-arrow-right text-muted mx-2 "></i><input type="text" class="form-control form-control-sm map-subj-name" placeholder="Sistemde Görünecek Ad (Örn: Türkçe)" value="${escapeHtml(toTitleCase(typedName))}"><button class="btn btn-danger btn-sm btn-remove" onclick="this.parentElement.remove()" title="Sil"><i class="fas fa-trash"></i></button>`;
+  html += `</select><i class="fas fa-arrow-right text-muted mx-2 "></i><input type="text" class="form-control form-control-sm map-subj-name" list="subjNameList" autocomplete="off" placeholder="Sistemde Görünecek Ad (Örn: Türkçe)" value="${escapeHtml(toTitleCase(typedName))}"><button class="btn btn-danger btn-sm btn-remove" onclick="this.parentElement.remove()" title="Sil"><i class="fas fa-trash"></i></button>`;
   div.innerHTML = html; getEl('subjectMapContainer').appendChild(div);
 }
 
@@ -579,10 +614,18 @@ function processMappings() {
     let subRows = document.querySelectorAll('.subj-map-row'), subsMap = []; subRows.forEach(r => { let c = r.querySelector('.map-subj-col').value, n = r.querySelector('.map-subj-name').value.trim(); if(c && n) subsMap.push({col: c, name: n}); });
     if(subsMap.length === 0) { let _lsSubs = []; try { _lsSubs = JSON.parse(userStorageGet('map_e') || '{}').subs || []; } catch(e) {} if(_lsSubs.length > 0) subsMap = _lsSubs; }
     if(subsMap.length === 0) { showToast('En az bir ders neti eşleştirmelisiniz (Adım 3).', 'warning'); return; }
+    rememberSubjectNames(subsMap.map(x => x.name));
 
     saveWizardStepData(); let finalSaved = {}; try { finalSaved = JSON.parse(userStorageGet('map_e') || '{}'); } catch(e){}
     let markAbsent = !!finalSaved.markAbsent;
     let cRank = { cR: '', cP: '', iR: '', iP: '', dR: finalSaved.dR||'', dP: finalSaved.dP||'', pR: finalSaved.pR||'', pP: finalSaved.pP||'', gR: finalSaved.gR||'', gP: finalSaved.gP||'' };
+    // Elle girilen katılımcı sayıları (isteğe bağlı): geçersizse devam edilmez
+    let manualCounts = {}, manualLabels = { dP: 'İlçe', pP: 'İl', gP: 'Genel' };
+    for(let k of ['dP','pP','gP']) {
+      let pv = _parseManualCount(wizardManualCounts[k]);
+      if(pv === null) { showToast(`${manualLabels[k]} kişi sayısı pozitif bir tam sayı olmalıdır (Adım 4).`, 'warning'); return; }
+      if(pv !== '') manualCounts[k] = pv;
+    }
 
     let gradesFound = new Set();
     d.forEach(r => { let no = String(r[cNo]||'').trim(); if(no) { let st = getStuMap().get(no); if(st) { let gr = getGrade(st.class); if(gr) gradesFound.add(gr); } } });
@@ -602,7 +645,9 @@ function processMappings() {
       if(score === null) { invalidRows.push({ rowNum: i + 2, no: no, reason: 'Puan sayısal değil' }); return; }
       seenStudentNos.add(no); cl.add(st.class); sn.add(no);
       let getRank = (col) => { if(!col) return '-'; let v = r[col]; return (v !== undefined && v !== null && v !== '') ? String(v) : '-'; };
-      let ex = { examBatchId:bId, studentNo:st.no, studentClass:st.class, date:eDate, examType:eType, publisher:toTitleCase(ePub), totalNet, score, cR:getRank(cRank.cR), cP:getRank(cRank.cP), iR:getRank(cRank.iR), iP:getRank(cRank.iP), dR:getRank(cRank.dR), dP:getRank(cRank.dP), pR:getRank(cRank.pR), pP:getRank(cRank.pP), gR:getRank(cRank.gR), gP:getRank(cRank.gP), abs:false, subs:{} };
+      // Kişi sayısı: önce Excel satırındaki değer, yoksa elle girilen sayı, o da yoksa '-'
+      let getCount = (col, k) => { let v = col ? r[col] : undefined; if(v !== undefined && v !== null && v !== '') return String(v); return manualCounts[k] || '-'; };
+      let ex = { examBatchId:bId, studentNo:st.no, studentClass:st.class, date:eDate, examType:eType, publisher:toTitleCase(ePub), totalNet, score, cR:getRank(cRank.cR), cP:getRank(cRank.cP), iR:getRank(cRank.iR), iP:getRank(cRank.iP), dR:getRank(cRank.dR), dP:getCount(cRank.dP, 'dP'), pR:getRank(cRank.pR), pP:getCount(cRank.pP, 'pP'), gR:getRank(cRank.gR), gP:getCount(cRank.gP, 'gP'), abs:false, subs:{} };
       for(let sm of subsMap) {
         let rawVal = r[sm.col];
         if(rawVal !== undefined && rawVal !== null && rawVal !== '') {
@@ -642,6 +687,7 @@ function processMappings() {
     previewHtml = `<h5 class="text-primary border-bottom pb-2 mb-3">Sınav Analizi: <strong>${escapeHtml(eType)}</strong> - ${escapeHtml(eDate)} <small class="text-muted">(${escapeHtml(toTitleCase(ePub)||'Yayınevi Yok')})</small></h5>
       <div class="row"><div class="col-md-3"><div class="preview-box compact"><strong>Geçerli Sonuç:</strong><br><span class="text-success preview-count-md">${validResults.length - absentCount} Kişi</span></div></div><div class="col-md-3"><div class="preview-box compact ${markAbsent?'warning':''}" title="${missingFromFileTitle}"><strong>${missingFromFileLabel}</strong><br><span class="${missingFromFileClass} preview-count-md">${missingFromFileCount} Kişi</span></div></div><div class="col-md-3"><div class="preview-box compact danger" title="Dosyada olan ama sistemde kaydı olmayanlar."><strong>Sistemde Yok:</strong><br><span class="text-danger preview-count-md">${missingStus.length} Kişi</span></div></div><div class="col-md-3"><div class="preview-box compact danger danger-strong" title="Excel hataları."><strong>Hatalı Satır:</strong><br><span class="text-danger preview-count-md">${invalidRows.length} Satır</span></div></div></div>${overwriteWarning}`;
     if(missingStus.length > 0) previewHtml += `<div class="alert alert-warning mt-2 preview-alert"><strong>Sistemde Bulunamayan Numaralar (Atlanacak):</strong> ${missingStus.slice(0,20).map(escapeHtml).join(', ')}${missingStus.length>20?'...':''}</div>`;
+    if(Object.keys(manualCounts).length > 0) previewHtml += `<div class="alert alert-info mt-2 preview-alert"><strong>Elle girilen kişi sayıları:</strong> ${['dP','pP','gP'].filter(k => manualCounts[k]).map(k => `${manualLabels[k]}: ${manualCounts[k]}`).join(' · ')} <span class="text-muted">(Excel'de değer olan satırlarda Excel'deki değer kullanılır.)</span></div>`;
     if(invalidRows.length > 0) previewHtml += `<div class="table-responsive mt-3 preview-error-table"><table class="table table-sm table-striped mb-0"><thead><tr><th class="preview-col-row">Satır</th><th class="preview-col-no">Öğrenci No</th><th>Hata Nedeni (Yüklenmeyecek)</th></tr></thead><tbody>${invalidRows.map(err => `<tr><td><strong>${escapeHtml(err.rowNum)}</strong></td><td>${escapeHtml(err.no)}</td><td class="text-danger">${escapeHtml(err.reason)}</td></tr>`).join('')}</tbody></table></div>`;
     PENDING_UPLOAD = { type: 'e', existsId: existsId, bId: bId, bD: eDate, bT: eType, bPub: toTitleCase(ePub), newResults: validResults, subjects: Array.from(subjectsFound), grades: Array.from(gradesFound), markAbsent: markAbsent, omittedStudents: notInFileCount };
   }

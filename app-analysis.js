@@ -503,10 +503,10 @@ function calcRiskScores() {
             flags.push({ type:'rank', severity:'low', examType:eType, detail:`${eType}: Sıralama geriledi ancak sonuçlar dalgalı — kesin bir düşüş trendi yok.`, z: 10 });
             typeScore += 10;
           } else if(delta >= 0.15) {
-            flags.push({ type:'rank', severity:'high', examType:eType, detail:`${eType}: Kurum sıralamasında belirgin düşüş — son iki sınavda %${Math.round(delta*100)} geriledi.`, z: 40 });
+            flags.push({ type:'rank', severity:'high', examType:eType, detail:`${eType}: Kurum sıralamasında belirgin düşüş — son iki sınavta %${Math.round(delta*100)} geriledi.`, z: 40 });
             typeScore += 40;
           } else if(delta >= 0.08) {
-            flags.push({ type:'rank', severity:'med', examType:eType, detail:`${eType}: Kurum sıralamasında gerileme — son iki sınavda %${Math.round(delta*100)} geriledi.`, z: 20 });
+            flags.push({ type:'rank', severity:'med', examType:eType, detail:`${eType}: Kurum sıralamasında gerileme — son iki sınavta %${Math.round(delta*100)} geriledi.`, z: 20 });
             typeScore += 20;
           }
         }
@@ -1512,8 +1512,8 @@ function rAllSubjects(r, eT, lvl, br, dateFilterS){
   if(!br && compList.length >= 2){
     let best = compList[0], worst = compList[compList.length - 1];
     row2Html = `<div class="row g-2 sec-cards-row analysis-info-cards subject-info-cards mb-2">
-      <div class="col-12 col-md-6 col-lg flex-fill mb-2"><div class="sec-card sec-pos h-100"><div class="sec-icon"><i class="fas fa-school"></i></div><div class="sec-body"><div class="sec-label">En Güçlü Sınıf</div><div class="sec-value">${escapeHtml(best.c)}</div><div class="sec-sub">Bileşik g: ${_subjAllFmtD(best.v)} (${best.n} ders)</div></div></div></div>
-      <div class="col-12 col-md-6 col-lg flex-fill mb-2"><div class="sec-card sec-neg h-100"><div class="sec-icon"><i class="fas fa-exclamation-circle"></i></div><div class="sec-body"><div class="sec-label">En Zayıf Sınıf</div><div class="sec-value">${escapeHtml(worst.c)}</div><div class="sec-sub">Bileşik g: ${_subjAllFmtD(worst.v)} (${worst.n} ders)</div></div></div></div>
+      <div class="col-12 col-md-6 col-lg flex-fill mb-2"><div class="sec-card sec-pos h-100"><div class="sec-icon"><i class="fas fa-school"></i></div><div class="sec-body"><div class="sec-label">En Güçlü Sınıf (Bileşik)</div><div class="sec-value">${escapeHtml(best.c)}</div><div class="sec-sub">Bileşik g: ${_subjAllFmtD(best.v)} (${best.n} ders)</div></div></div></div>
+      <div class="col-12 col-md-6 col-lg flex-fill mb-2"><div class="sec-card sec-neg h-100"><div class="sec-icon"><i class="fas fa-exclamation-circle"></i></div><div class="sec-body"><div class="sec-label">En Zayıf Sınıf (Bileşik)</div><div class="sec-value">${escapeHtml(worst.c)}</div><div class="sec-sub">Bileşik g: ${_subjAllFmtD(worst.v)} (${worst.n} ders)</div></div></div></div>
     </div>`;
   }
 

@@ -22,6 +22,11 @@ Okullar için Türkçe, tarayıcı tabanlı **sınav sonucu analiz** uygulaması
 - Uygulama `/sinav/` alt yolunda yayınlanacak şekilde yapılandırılmıştır (`manifest.json`, `sw.js` ve `index.html` içindeki servis çalışanı kaydı). Farklı bir yola taşınırsa bu üç yerdeki yollar güncellenmelidir.
 - Her değişiklikten sonra `version.js` içindeki `APP_VERSION` değeri artırılmalıdır; betikler ve önbellek bu sürümle yenilenir.
 
+## Excel aktarma notları
+
+- İl, ilçe ve genel **kişi (katılımcı) sayısı** Excel sütunundan alınabilir ya da elle girilebilir. Excel'de o satırda değer varsa o kullanılır, yoksa elle girilen sayı yazılır; ikisi de yoksa alan boş (`-`) kalır. Elle girilen sayılar sınava özgü olduğundan hafızaya alınmaz.
+- Ders adı kutusu, daha önce yazılan ve sistemdeki dersleri öneri olarak sunar (kullanıcıya özel hafıza).
+
 ## Veri modeli (Realtime Database, `db_v2`)
 
 - `students`: `{ no, name, class }` listesi
