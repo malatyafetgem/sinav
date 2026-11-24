@@ -469,9 +469,22 @@ function buildMappingUI() {
       </div>`;
     getEl('mMappingsFooter').innerHTML = `<button type="button" class="btn btn-secondary" onclick="cancelUpload()">İptal</button><button type="button" class="btn btn-primary" onclick="processMappings()">Onayla ve Analiz Et <i class="fas fa-arrow-right ms-1"></i></button>`;
   } else {
-    wizardStep = 0; wizardManualCounts = { dP: '', pP: '', gP: '' }; renderWizardStep();
+    wizardStep = 0; wizardManualCounts = { dP: '', pP: '', gP: '' }; wizardSelectedGrades = null; renderWizardStep();
     getEl('mMappingsFooter').innerHTML = `<button type="button" class="btn btn-secondary" onclick="cancelUpload()">İptal</button><div class="ms-auto d-flex mapping-footer-actions"><button type="button" class="btn btn-outline-secondary" id="wizBtnBack" onclick="wizardNav(-1)" style="display:none;"><i class="fas fa-arrow-left me-1"></i>Geri</button><button type="button" class="btn btn-primary" id="wizBtnNext" onclick="wizardNav(1)">İleri <i class="fas fa-arrow-right ms-1"></i></button><button type="button" class="btn btn-success" id="wizBtnDone" onclick="processMappings()" style="display:none;">Onayla ve Analiz Et <i class="fas fa-check ms-1"></i></button></div>`;
   }
+}
+
+// Alınacak sınıf seviyeleri (sınav aktarma): yalnızca açık sihirbaz oturumunda tutulur; null = hepsi (süzme yok).
+// İşaretlenmeyen seviyelerin öğrenci numaraları dosyadan hariç tutulur.
+let wizardSelectedGrades = null;
+function _wizardAvailableGrades() {
+  return [...new Set((DB.s || []).map(s => getGrade(s.class)).filter(Boolean))].sort((a, b) => Number(a) - Number(b));
+}
+function _gradeSelectionHtml() {
+  const grades = _wizardAvailableGrades();
+  if(!grades.length) return '';
+  return `<div class="mt-3"><label class="form-label mb-1">Alınacak sınıf seviyeleri <small class="text-muted">(işaretlenmeyen seviyelerin öğrenci numaraları dosyadan hariç tutulur)</small></label>
+        <div class="d-flex flex-wrap gap-3" id="map_e_grades">${grades.map(g => `<div class="form-check"><input class="form-check-input map-grade-chk" type="checkbox" id="map_e_grade_${escapeHtml(g)}" value="${escapeHtml(g)}" ${(wizardSelectedGrades === null || wizardSelectedGrades.includes(g)) ? 'checked' : ''}><label class="form-check-label" for="map_e_grade_${escapeHtml(g)}">${escapeHtml(g)}. Sınıf</label></div>`).join('')}</div></div>`;
 }
 
 // Katılımcı (kişi) sayıları sınava özgüdür: kalıcı hafızaya yazılmaz, yalnızca açık sihirbaz oturumunda tutulur
@@ -499,6 +512,7 @@ function renderWizardStep() {
   if(wizardStep === 0) {
     stepHtml = `<div class="wizard-section"><h6><i class="fas fa-tag me-1"></i> Sınav Genel Bilgileri (Zorunlu)</h6>
       <div class="row"><div class="col-md-4"><div class="mb-3"><label class="form-label">Sınav Türü <small class="text-muted">(Örn: TYT)</small></label><input type="text" id="map_e_type" class="form-control" placeholder="TYT" value="${escapeHtml(saved.type||'')}"></div></div><div class="col-md-4"><div class="mb-3"><label class="form-label">Tarih <small class="text-muted">(GG.AA.YYYY)</small></label><input type="text" id="map_e_date" class="form-control" placeholder="15.04.2024" value="${escapeHtml(saved.date||trDate)}"></div></div><div class="col-md-4"><div class="mb-3"><label class="form-label">Yayınevi <small class="text-muted">(İsteğe Bağlı)</small></label><input type="text" id="map_e_pub" class="form-control" placeholder="MEB" value="${escapeHtml(saved.pub||'')}"></div></div></div>
+      ${_gradeSelectionHtml()}
       <div class="form-check mt-2"><input class="form-check-input" type="checkbox" id="map_e_mark_absent" ${saved.markAbsent?'checked':''}><label class="form-check-label" for="map_e_mark_absent">Dosyada olmayan sınıf öğrencilerini <strong>katılmadı</strong> olarak işaretle</label><div class="form-text">Kısmi/filtreli Excel yüklemelerinde bu seçenek kapalı kalmalıdır.</div></div></div>`;
   } else if(wizardStep === 1) {
     stepHtml = `<div class="wizard-section"><h6><i class="fas fa-columns me-1"></i> Sabit Excel Sütunları</h6>
@@ -532,7 +546,7 @@ function wizardNav(dir) { saveWizardStepData(); wizardStep = Math.max(0, Math.mi
 
 function saveWizardStepData() {
   let saved = {}; try { saved = JSON.parse(userStorageGet('map_e') || '{}'); } catch(e){}
-  if(wizardStep === 0) { let t = getEl('map_e_type'), d = getEl('map_e_date'), p = getEl('map_e_pub'), ma = getEl('map_e_mark_absent'); if(t) saved.type = t.value; if(d) saved.date = d.value; if(p) saved.pub = p.value; if(ma) saved.markAbsent = ma.checked; }
+  if(wizardStep === 0) { let t = getEl('map_e_type'), d = getEl('map_e_date'), p = getEl('map_e_pub'), ma = getEl('map_e_mark_absent'); if(t) saved.type = t.value; if(d) saved.date = d.value; if(p) saved.pub = p.value; if(ma) saved.markAbsent = ma.checked; let gchk = document.querySelectorAll('.map-grade-chk'); if(gchk.length) wizardSelectedGrades = Array.from(gchk).filter(c => c.checked).map(c => c.value); }
   else if(wizardStep === 1) { let no = getEl('map_e_no'), tn = getEl('map_e_tnet'), sc = getEl('map_e_score'); if(no) saved.no = no.value; if(tn) saved.tnet = tn.value; if(sc) saved.score = sc.value; }
   else if(wizardStep === 2) { let rows = document.querySelectorAll('.subj-map-row'), subs = []; rows.forEach(r => { let c = r.querySelector('.map-subj-col').value, n = r.querySelector('.map-subj-name').value.trim(); if(c && n) subs.push({col:c,name:n}); }); saved.subs = subs; rememberSubjectNames(subs.map(x => x.name)); }
   else if(wizardStep === 3) { ['dP','pP','gP'].forEach(k => { let m = getEl('map_e_'+k+'_manual'); if(m) wizardManualCounts[k] = m.value.trim(); }); ['dR','dP','pR','pP','gR','gP'].forEach(k => { let el = getEl('map_e_'+k); if(el) saved[k] = el.value; }); ['cR','cP','iR','iP'].forEach(k => { delete saved[k]; }); }
@@ -627,8 +641,15 @@ function processMappings() {
       if(pv !== '') manualCounts[k] = pv;
     }
 
+    // Sınıf seviyesi seçimi: en az bir seviye zorunlu; seçilmeyen seviyelerin numaraları dosyadan hariç tutulur
+    let availGrades = _wizardAvailableGrades();
+    let selSet = Array.isArray(wizardSelectedGrades) ? new Set(wizardSelectedGrades) : null;
+    if(selSet && availGrades.length && !availGrades.some(g => selSet.has(g))) { showToast('En az bir sınıf seviyesi seçmelisiniz (Adım 1).', 'warning'); return; }
+    let gradeRestricted = !!(selSet && availGrades.some(g => !selSet.has(g)));
+    let excludedByGrade = {}, excludedTotal = 0;
+
     let gradesFound = new Set();
-    d.forEach(r => { let no = String(r[cNo]||'').trim(); if(no) { let st = getStuMap().get(no); if(st) { let gr = getGrade(st.class); if(gr) gradesFound.add(gr); } } });
+    d.forEach(r => { let no = String(r[cNo]||'').trim(); if(no) { let st = getStuMap().get(no); if(st) { let gr = getGrade(st.class); if(gr && (!gradeRestricted || selSet.has(gr))) gradesFound.add(gr); } } });
     let existsId = Object.keys(EXAM_META).find(id => { let em = EXAM_META[id]; if(em.examType !== eType || em.date !== eDate) return false; return metaIntersectsGrades(em, gradesFound); });
     let bId = existsId || Date.now().toString();
     let cl=new Set(), sn=new Set(), validResults = [], missingStus = [], invalidRows = [], subjectsFound = new Set(), seenStudentNos = new Set();
@@ -637,6 +658,7 @@ function processMappings() {
       let no = String(r[cNo]||'').trim(), st = getStuMap().get(no), net = r[cTnet];
       if(!no) { invalidRows.push({ rowNum: i + 2, no: '—', reason: 'Numara Boş' }); return; }
       if(!st) { missingStus.push(no); return; } 
+      if(gradeRestricted) { let g0 = getGrade(st.class); if(!selSet.has(g0)) { let gk = g0 || '?'; excludedByGrade[gk] = (excludedByGrade[gk] || 0) + 1; excludedTotal++; return; } }
       if(net === undefined || net === null || net === '') { invalidRows.push({ rowNum: i + 2, no: no, reason: 'Toplam Net Yok' }); return; }
       if(seenStudentNos.has(no)) { invalidRows.push({ rowNum: i + 2, no: no, reason: `Mükerrer Öğrenci` }); return; }
       let totalNet = parseNumberStrict(r[cTnet]);
@@ -675,6 +697,7 @@ function processMappings() {
         }
       }
     });
+    if(validResults.length === 0 && excludedTotal > 0) { showToast(`Seçilen sınıf seviyelerine uyan öğrenci bulunamadı (${excludedTotal} satır seçilmeyen seviyelerde).`, 'error'); return; }
     if(validResults.length === 0) { showToast('Sisteme eklenecek geçerli bir sınav sonucu bulunamadı.', 'error'); return; }
     let _oldCount = (existsId && Array.isArray(CACHED_RESULTS[existsId])) ? CACHED_RESULTS[existsId].length : null;
     let overwriteWarning = existsId ? `<div class="alert alert-warning mt-3"><strong><i class="fas fa-exclamation-triangle me-2"></i>Bu sınav sistemde zaten kayıtlı!</strong> <b>${escapeHtml(eDate)}</b> tarihli <b>${escapeHtml(eType)}</b> sınavı için ${_oldCount !== null ? `<b>${_oldCount}</b> kayıt` : 'kayıtlar'} mevcut. Nasıl devam edilsin?
@@ -687,6 +710,7 @@ function processMappings() {
     previewHtml = `<h5 class="text-primary border-bottom pb-2 mb-3">Sınav Analizi: <strong>${escapeHtml(eType)}</strong> - ${escapeHtml(eDate)} <small class="text-muted">(${escapeHtml(toTitleCase(ePub)||'Yayınevi Yok')})</small></h5>
       <div class="row"><div class="col-md-3"><div class="preview-box compact"><strong>Geçerli Sonuç:</strong><br><span class="text-success preview-count-md">${validResults.length - absentCount} Kişi</span></div></div><div class="col-md-3"><div class="preview-box compact ${markAbsent?'warning':''}" title="${missingFromFileTitle}"><strong>${missingFromFileLabel}</strong><br><span class="${missingFromFileClass} preview-count-md">${missingFromFileCount} Kişi</span></div></div><div class="col-md-3"><div class="preview-box compact danger" title="Dosyada olan ama sistemde kaydı olmayanlar."><strong>Sistemde Yok:</strong><br><span class="text-danger preview-count-md">${missingStus.length} Kişi</span></div></div><div class="col-md-3"><div class="preview-box compact danger danger-strong" title="Excel hataları."><strong>Hatalı Satır:</strong><br><span class="text-danger preview-count-md">${invalidRows.length} Satır</span></div></div></div>${overwriteWarning}`;
     if(missingStus.length > 0) previewHtml += `<div class="alert alert-warning mt-2 preview-alert"><strong>Sistemde Bulunamayan Numaralar (Atlanacak):</strong> ${missingStus.slice(0,20).map(escapeHtml).join(', ')}${missingStus.length>20?'...':''}</div>`;
+    if(gradeRestricted) previewHtml += `<div class="alert alert-info mt-2 preview-alert"><strong>Alınan sınıf seviyeleri:</strong> ${availGrades.filter(g => selSet.has(g)).join(', ')}. ${excludedTotal > 0 ? `<strong>${excludedTotal}</strong> satır seçilmeyen seviyelerde olduğu için hariç tutuldu (${Object.keys(excludedByGrade).sort((a, b) => (a === '?') - (b === '?') || Number(a) - Number(b)).map(g => g === '?' ? `seviyesi belirsiz: ${excludedByGrade[g]}` : `${g}. sınıf: ${excludedByGrade[g]}`).join(', ')}).` : 'Dosyada seçilmeyen seviyeden öğrenci bulunmadı.'}</div>`;
     if(Object.keys(manualCounts).length > 0) previewHtml += `<div class="alert alert-info mt-2 preview-alert"><strong>Elle girilen kişi sayıları:</strong> ${['dP','pP','gP'].filter(k => manualCounts[k]).map(k => `${manualLabels[k]}: ${manualCounts[k]}`).join(' · ')} <span class="text-muted">(Excel'de değer olan satırlarda Excel'deki değer kullanılır.)</span></div>`;
     if(invalidRows.length > 0) previewHtml += `<div class="table-responsive mt-3 preview-error-table"><table class="table table-sm table-striped mb-0"><thead><tr><th class="preview-col-row">Satır</th><th class="preview-col-no">Öğrenci No</th><th>Hata Nedeni (Yüklenmeyecek)</th></tr></thead><tbody>${invalidRows.map(err => `<tr><td><strong>${escapeHtml(err.rowNum)}</strong></td><td>${escapeHtml(err.no)}</td><td class="text-danger">${escapeHtml(err.reason)}</td></tr>`).join('')}</tbody></table></div>`;
     PENDING_UPLOAD = { type: 'e', existsId: existsId, bId: bId, bD: eDate, bT: eType, bPub: toTitleCase(ePub), newResults: validResults, subjects: Array.from(subjectsFound), grades: Array.from(gradesFound), markAbsent: markAbsent, omittedStudents: notInFileCount };

@@ -26,6 +26,7 @@ Okullar için Türkçe, tarayıcı tabanlı **sınav sonucu analiz** uygulaması
 
 - İl, ilçe ve genel **kişi (katılımcı) sayısı** Excel sütunundan alınabilir ya da elle girilebilir. Excel'de o satırda değer varsa o kullanılır, yoksa elle girilen sayı yazılır; ikisi de yoksa alan boş (`-`) kalır. Elle girilen sayılar sınava özgü olduğundan hafızaya alınmaz.
 - Ders adı kutusu, daha önce yazılan ve sistemdeki dersleri öneri olarak sunar (kullanıcıya özel hafıza).
+- **Alınacak sınıf seviyeleri:** Sihirbazın ilk adımında sistemdeki seviyeler (örn. 9, 10, 11, 12) onay kutusu olarak listelenir; birden fazlası seçilebilir. İşaretlenmeyen seviyelerin öğrenci numaraları dosyadan hariç tutulur ve önizlemede sayıları gösterilir. Varsayılan hepsi işaretlidir (seçim hatırlanmaz). Seviye, öğrencinin sistemdeki sınıf kaydından belirlenir; bu yüzden sınıf atlayan öğrencilerin kaydı güncel olmalıdır.
 
 ## Veri modeli (Realtime Database, `db_v2`)
 
